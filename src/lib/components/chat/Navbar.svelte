@@ -27,6 +27,8 @@
 
 	import PencilSquare from '../icons/PencilSquare.svelte';
 
+	import { customUIControls } from '../../../custom/stores';
+
 	const i18n = getContext('i18n');
 
 	export let initNewChat: Function;
@@ -130,7 +132,7 @@
 					</Tooltip>
 				{/if}
 
-				{#if !$mobile && ($user.role === 'admin' || $user?.permissions.chat?.controls)}
+				{#if !$mobile && ($user.role === 'admin' || $user?.permissions.chat?.controls) && $customUIControls.showControlsButton}
 					<Tooltip content={$i18n.t('Controls')}>
 						<button
 							class=" flex cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition"
