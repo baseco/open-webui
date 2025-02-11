@@ -7,6 +7,7 @@
 	import { onMount, getContext } from 'svelte';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import { customUIControls } from '../../../../custom/stores';
 
 	const i18n = getContext('i18n');
 
@@ -34,11 +35,20 @@
 	};
 
 	onMount(async () => {
-		ollamaVersion = await getOllamaVersion(localStorage.token).catch((error) => {
-			return '';
-		});
+		if (!$customUIControls.showUpdateNotifications) {
+			updateAvailable = null;
+			return;
+		}
+		
+		try {
+			ollamaVersion = await getOllamaVersion(localStorage.token).catch((error) => {
+				return '';
+			});
 
-		checkForVersionUpdates();
+			checkForVersionUpdates();
+		} catch (error) {
+			console.error(error);
+		}
 	});
 </script>
 
