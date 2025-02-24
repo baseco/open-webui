@@ -114,10 +114,7 @@ DEFAULT_CONFIG = {
                 "content": "Help me study vocabulary: write a sentence for me to fill in the blank, and I'll try to pick the correct option.",
             },
             {
-                "title": [
-                    "Give me ideas",
-                    "for what to do with my kids' art",
-                ],
+                "title": ["Give me ideas", "for what to do with my kids' art"],
                 "content": "What are 5 creative things I could do with my kids' art? I don't want to throw them away, but it's also so much clutter.",
             },
             {
@@ -125,10 +122,7 @@ DEFAULT_CONFIG = {
                 "content": "Tell me a random fun fact about the Roman Empire",
             },
             {
-                "title": [
-                    "Show me a code snippet",
-                    "of a website's sticky header",
-                ],
+                "title": ["Show me a code snippet", "of a website's sticky header"],
                 "content": "Show me a code snippet of a website's sticky header in CSS and JavaScript.",
             },
             {
@@ -306,6 +300,36 @@ OAUTH_MERGE_ACCOUNTS_BY_EMAIL = PersistentConfig(
 )
 
 OAUTH_PROVIDERS = {}
+
+AUTH0_CLIENT_ID = PersistentConfig(
+    "AUTH0_CLIENT_ID",
+    "oauth.auth0.client_id",
+    os.environ.get("AUTH0_CLIENT_ID", ""),
+)
+
+AUTH0_CLIENT_SECRET = PersistentConfig(
+    "AUTH0_CLIENT_SECRET",
+    "oauth.auth0.client_secret",
+    os.environ.get("AUTH0_CLIENT_SECRET", ""),
+)
+
+AUTH0_DOMAIN = PersistentConfig(
+    "AUTH0_DOMAIN",
+    "oauth.auth0.domain",
+    os.environ.get("AUTH0_DOMAIN", "channelai.us.auth0.com"),
+)
+
+AUTH0_AUDIENCE = PersistentConfig(
+    "AUTH0_AUDIENCE",
+    "oauth.auth0.audience",
+    os.environ.get("AUTH0_AUDIENCE", "https://admin-api-prod.shroom.gg"),
+)
+
+AUTH0_CALLBACK_URL = PersistentConfig(
+    "AUTH0_CALLBACK_URL",
+    "oauth.auth0.callback_url",
+    os.environ.get("AUTH0_CALLBACK_URL", ""),
+)
 
 GOOGLE_CLIENT_ID = PersistentConfig(
     "GOOGLE_CLIENT_ID",
@@ -490,7 +514,34 @@ OAUTH_ALLOWED_DOMAINS = PersistentConfig(
 
 
 def load_oauth_providers():
+    """Load OAuth providers configuration"""
     OAUTH_PROVIDERS.clear()
+    
+    # Add Auth0 provider
+    if AUTH0_CLIENT_ID.value and AUTH0_CLIENT_SECRET.value:
+        callback_url = AUTH0_CALLBACK_URL.value
+        log.info(f"Configuring Auth0 with callback URL: {callback_url}")
+        
+        OAUTH_PROVIDERS["auth0"] = {
+            "name": "Auth0",
+            "icon": "https://cdn.auth0.com/styleguide/components/1.0.8/media/logos/img/badge.png",
+            "register": lambda oauth: oauth.register(
+                name="auth0",
+                client_id=AUTH0_CLIENT_ID.value,
+                client_secret=AUTH0_CLIENT_SECRET.value,
+                access_token_url=f"https://{AUTH0_DOMAIN.value}/oauth/token",
+                authorize_url=f"https://{AUTH0_DOMAIN.value}/authorize",
+                api_base_url=f"https://{AUTH0_DOMAIN.value}",
+                userinfo_endpoint=f"https://{AUTH0_DOMAIN.value}/userinfo",
+                client_kwargs={
+                    "scope": "openid profile email",
+                    "response_type": "code",
+                    "code_challenge_method": None,
+                },
+                redirect_uri=callback_url,
+            ),
+        }
+
     if GOOGLE_CLIENT_ID.value and GOOGLE_CLIENT_SECRET.value:
 
         def google_oauth_register(client):

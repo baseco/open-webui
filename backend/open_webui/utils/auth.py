@@ -2,7 +2,7 @@ import logging
 import uuid
 import jwt
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Optional, Union, List, Dict
 
 from open_webui.models.users import Users
@@ -14,6 +14,8 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
 
+from open_webui.utils.auth0 import get_auth0_user
+
 logging.getLogger("passlib").setLevel(logging.ERROR)
 
 
@@ -24,8 +26,8 @@ ALGORITHM = "HS256"
 # Auth Utils
 ##############
 
-bearer_security = HTTPBearer(auto_error=False)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+bearer_security = HTTPBearer(auto_error=False)
 
 
 def verify_password(plain_password, hashed_password):
@@ -42,7 +44,7 @@ def create_token(data: dict, expires_delta: Union[timedelta, None] = None) -> st
     payload = data.copy()
 
     if expires_delta:
-        expire = datetime.now(UTC) + expires_delta
+        expire = datetime.now() + expires_delta
         payload.update({"exp": expire})
 
     encoded_jwt = jwt.encode(payload, SESSION_SECRET, algorithm=ALGORITHM)
@@ -74,7 +76,7 @@ def get_http_authorization_cred(auth_header: str):
         raise ValueError(ERROR_MESSAGES.INVALID_TOKEN)
 
 
-def get_current_user(
+async def get_current_user(
     request: Request,
     auth_token: HTTPAuthorizationCredentials = Depends(bearer_security),
 ):
@@ -86,55 +88,68 @@ def get_current_user(
     if token is None and "token" in request.cookies:
         token = request.cookies.get("token")
 
-    if token is None:
-        raise HTTPException(status_code=403, detail="Not authenticated")
-
-    # auth by api key
-    if token.startswith("sk-"):
-        if not request.state.enable_api_key:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED
-            )
-
-        if request.app.state.config.ENABLE_API_KEY_ENDPOINT_RESTRICTIONS:
-            allowed_paths = [
-                path.strip()
-                for path in str(
-                    request.app.state.config.API_KEY_ALLOWED_ENDPOINTS
-                ).split(",")
-            ]
-
-            if request.url.path not in allowed_paths:
+    if token is not None:
+        # auth by api key
+        if token.startswith("sk-"):
+            if not request.state.enable_api_key:
                 raise HTTPException(
                     status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED
                 )
 
-        return get_current_user_by_api_key(token)
+            if request.app.state.config.ENABLE_API_KEY_ENDPOINT_RESTRICTIONS:
+                allowed_paths = [
+                    path.strip()
+                    for path in str(
+                        request.app.state.config.API_KEY_ALLOWED_ENDPOINTS
+                    ).split(",")
+                ]
 
-    # auth by jwt token
-    try:
-        data = decode_token(token)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
+                if request.url.path not in allowed_paths:
+                    raise HTTPException(
+                        status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED
+                    )
 
-    if data is not None and "id" in data:
-        user = Users.get_user_by_id(data["id"])
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ERROR_MESSAGES.INVALID_TOKEN,
+            return get_current_user_by_api_key(token)
+
+        # auth by jwt token
+        try:
+            data = decode_token(token)
+            if data is not None and "id" in data:
+                user = Users.get_user_by_id(data["id"])
+                if user is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=ERROR_MESSAGES.INVALID_TOKEN,
+                    )
+                else:
+                    Users.update_user_last_active_by_id(user.id)
+                    return user
+        except Exception:
+            pass  # Fall through to try Auth0
+
+    # If no valid session token, try Auth0
+    auth0_user = await get_auth0_user(request)
+    if auth0_user:
+        # Create or update user from Auth0 profile
+        user = Users.get_by_email(auth0_user.get('email'))
+        if not user:
+            # Create new user from Auth0 profile
+            user = Users.create(
+                username=auth0_user.get('nickname') or auth0_user.get('email'),
+                email=auth0_user.get('email'),
+                password=None,  # No password for OAuth users
+                oauth_sub=auth0_user.get('sub'),  # Store Auth0 sub for future reference
             )
-        else:
-            Users.update_user_last_active_by_id(user.id)
+        elif not user.oauth_sub:
+            # Update existing user with Auth0 sub if not set
+            user.oauth_sub = auth0_user.get('sub')
+            user.save()
         return user
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ERROR_MESSAGES.UNAUTHORIZED,
-        )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=ERROR_MESSAGES.UNAUTHORIZED,
+    )
 
 
 def get_current_user_by_api_key(api_key: str):

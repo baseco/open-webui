@@ -26,11 +26,15 @@ ARG BUILD_HASH
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# Copy only package files first to leverage cache
+COPY package*.json ./
 RUN npm ci
 
+# Copy all necessary files for the build
 COPY . .
+
 ENV APP_BUILD_HASH=${BUILD_HASH}
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build
 
 ######## WebUI backend ########
@@ -90,7 +94,33 @@ ENV HF_HOME="/app/backend/data/cache/embedding/models"
 
 WORKDIR /app/backend
 
-ENV HOME=/root
+# Install system dependencies first
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    gcc \
+    g++ \
+    make \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies first (this layer changes less frequently)
+COPY ./backend/requirements.txt ./requirements.txt
+RUN pip3 install uv && \
+    if [ "$USE_CUDA" = "true" ]; then \
+    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER --no-cache-dir && \
+    uv pip install --system -r requirements.txt --no-cache-dir; \
+    else \
+    uv pip install --system -r requirements.txt --no-cache-dir; \
+    fi
+
+# Copy the rest of the application (these files change more frequently)
+COPY --from=build /app/build /app/build
+COPY --from=build /app/package.json /app/package.json
+COPY ./backend .
+COPY .env .env
+COPY CHANGELOG.md /app/CHANGELOG.md
+
 # Create user and group if not root
 RUN if [ $UID -ne 0 ]; then \
     if [ $GID -ne 0 ]; then \
@@ -129,39 +159,17 @@ RUN if [ "$USE_OLLAMA" = "true" ]; then \
     rm -rf /var/lib/apt/lists/*; \
     fi
 
-# install python dependencies
-COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
-
-RUN pip3 install uv && \
-    if [ "$USE_CUDA" = "true" ]; then \
-    # If you use CUDA the whisper and embedding model will be downloaded on first use
-    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER --no-cache-dir && \
-    uv pip install --system -r requirements.txt --no-cache-dir && \
-    python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')" && \
-    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
-    python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
-    else \
-    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir && \
-    uv pip install --system -r requirements.txt --no-cache-dir && \
-    python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')" && \
-    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
-    python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
-    fi; \
-    chown -R $UID:$GID /app/backend/data/
-
-
-
 # copy embedding weight from build
 # RUN mkdir -p /root/.cache/chroma/onnx_models/all-MiniLM-L6-v2
 # COPY --from=build /app/onnx /root/.cache/chroma/onnx_models/all-MiniLM-L6-v2/onnx
 
 # copy built frontend files
-COPY --chown=$UID:$GID --from=build /app/build /app/build
-COPY --chown=$UID:$GID --from=build /app/CHANGELOG.md /app/CHANGELOG.md
-COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
+# COPY --chown=$UID:$GID --from=build /app/build /app/build
+# COPY --chown=$UID:$GID --from=build /app/CHANGELOG.md /app/CHANGELOG.md
+# COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 
 # copy backend files
-COPY --chown=$UID:$GID ./backend .
+# COPY --chown=$UID:$GID ./backend .
 
 EXPOSE 8080
 

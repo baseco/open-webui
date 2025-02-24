@@ -409,3 +409,15 @@ OFFLINE_MODE = os.environ.get("OFFLINE_MODE", "false").lower() == "true"
 
 if OFFLINE_MODE:
     os.environ["HF_HUB_OFFLINE"] = "1"
+
+####################################
+# Auth0 Configuration
+####################################
+
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
+AUTH0_CLIENT_ID = os.environ.get("AUTH0_CLIENT_ID", "")
+AUTH0_CLIENT_SECRET = os.environ.get("AUTH0_CLIENT_SECRET", "")
+AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
+AUTH0_CALLBACK_URL = os.environ.get("AUTH0_CALLBACK_URL", "")
+
+####################################

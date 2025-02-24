@@ -28,8 +28,6 @@
 
 	import PencilSquare from '../icons/PencilSquare.svelte';
 
-	import { customUIControls } from '../../../custom/stores';
-
 	const i18n = getContext('i18n');
 
 	export let initNewChat: Function;
