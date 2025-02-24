@@ -136,13 +136,16 @@ DEFAULT_CONFIG = {
                 "content": "Explain options trading in simple terms if I'm familiar with buying and selling stocks.",
             },
             {
-                "title": ["Overcome procrastination", "give me tips"],
+                "title": [
+                    "Overcome procrastination",
+                    "give me tips",
+                ],
                 "content": "Could you start by asking me about instances when I procrastinate the most and then give me some suggestions to overcome it?",
             },
             {
                 "title": [
                     "Grammar check",
-                    "rewrite it for better readability ",
+                    "rewrite it for better readability",
                 ],
                 "content": 'Check the following sentence for grammar and clarity: "[sentence]". Rewrite it for better readability while maintaining its original meaning.',
             },
@@ -904,19 +907,31 @@ DEFAULT_PROMPT_SUGGESTIONS = PersistentConfig(
             "content": "Tell me a random fun fact about the Roman Empire",
         },
         {
-            "title": ["Show me a code snippet", "of a website's sticky header"],
+            "title": [
+                "Show me a code snippet",
+                "of a website's sticky header",
+            ],
             "content": "Show me a code snippet of a website's sticky header in CSS and JavaScript.",
         },
         {
-            "title": ["Explain options trading", "if I'm familiar with buying and selling stocks"],
+            "title": [
+                "Explain options trading",
+                "if I'm familiar with buying and selling stocks",
+            ],
             "content": "Explain options trading in simple terms if I'm familiar with buying and selling stocks.",
         },
         {
-            "title": ["Overcome procrastination", "give me tips"],
+            "title": [
+                "Overcome procrastination",
+                "give me tips",
+            ],
             "content": "Could you start by asking me about instances when I procrastinate the most and then give me some suggestions to overcome it?",
         },
         {
-            "title": ["Grammar check", "rewrite it for better readability "],
+            "title": [
+                "Grammar check",
+                "rewrite it for better readability",
+            ],
             "content": 'Check the following sentence for grammar and clarity: "[sentence]". Rewrite it for better readability while maintaining its original meaning.',
         },
     ],
