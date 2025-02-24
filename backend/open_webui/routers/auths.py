@@ -320,12 +320,14 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
 
 @router.get("/oauth/auth0/login")
 async def auth0_login(request: Request):
-    """Redirect to Auth0 login page"""
+    """
+    Initiate Auth0 authentication flow by redirecting to Auth0's login page.
+    The user will be presented with Auth0's Universal Login page where they can
+    authenticate using various methods (email/password, social logins, etc.).
+    """
     from open_webui.utils.oauth import oauth_manager
-    from open_webui.config import AUTH0_CALLBACK_URL
     
     client = oauth_manager.get_client("auth0")
-    log.info(f"Auth0 login with callback URL: {AUTH0_CALLBACK_URL.value}")
     return await client.authorize_redirect(
         request,
         redirect_uri=AUTH0_CALLBACK_URL.value
@@ -333,24 +335,20 @@ async def auth0_login(request: Request):
 
 @router.get("/oauth/auth0/callback", name="auth0_callback")
 async def auth0_callback(request: Request, response: Response):
-    """Handle Auth0 callback"""
+    """
+    Handle the Auth0 callback after successful authentication.
+    This endpoint:
+    1. Exchanges the authorization code for tokens
+    2. Retrieves user information from Auth0
+    3. Creates or updates the user in our database
+    4. Creates a session for the user
+    """
     try:
-        log.info("Starting Auth0 callback processing")
         import httpx
         from open_webui.utils.oauth import oauth_manager
-        from open_webui.config import AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_CALLBACK_URL, AUTH0_DOMAIN
         
-        # Log request details
-        log.debug(f"Request URL: {request.url}")
-        log.debug(f"Request query params: {dict(request.query_params)}")
-        log.debug(f"Using client_id: {AUTH0_CLIENT_ID.value}")
-        log.debug(f"Using callback URL: {AUTH0_CALLBACK_URL.value}")
-        
-        # Make direct token request to Auth0
+        # Exchange authorization code for tokens
         token_url = f"https://{AUTH0_DOMAIN.value}/oauth/token"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        }
         token_data = {
             'grant_type': 'authorization_code',
             'client_id': AUTH0_CLIENT_ID.value,
@@ -359,110 +357,85 @@ async def auth0_callback(request: Request, response: Response):
             'redirect_uri': AUTH0_CALLBACK_URL.value
         }
         
-        log.debug(f"Making token request to: {token_url}")
-        log.debug(f"Token request data: {token_data}")
-        
         async with httpx.AsyncClient() as client:
-            try:
-                token_response = await client.post(
-                    token_url,
-                    data=token_data,
-                    headers=headers
-                )
-                log.debug(f"Token response status: {token_response.status_code}")
-                log.debug(f"Token response headers: {dict(token_response.headers)}")
-                log.debug(f"Token response body: {token_response.text}")
-                
-                if token_response.status_code != 200:
-                    error_data = token_response.json()
-                    error_msg = error_data.get('error_description', error_data.get('error', 'Unknown error'))
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail=f"Auth0 error: {error_msg}",
-                    )
-                
-                token = token_response.json()
-                
-            except Exception as e:
-                log.error(f"Error in token request: {str(e)}")
-                if isinstance(e, HTTPException):
-                    raise e
+            # Get access token
+            token_response = await client.post(
+                token_url,
+                data=token_data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            if token_response.status_code != 200:
+                error_data = token_response.json()
+                error_msg = error_data.get('error_description', error_data.get('error', 'Unknown error'))
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Failed to get access token: {str(e)}",
+                    detail=f"Auth0 error: {error_msg}",
                 )
             
-            try:
-                # Use the token to get user info
-                headers = {"Authorization": f"Bearer {token['access_token']}"}
-                userinfo_url = f"https://{AUTH0_DOMAIN.value}/userinfo"
-                userinfo_response = await client.get(userinfo_url, headers=headers)
-                userinfo = userinfo_response.json()
-                log.debug(f"User info response: {userinfo}")
-                
-            except Exception as e:
-                log.error(f"Error getting user info: {str(e)}")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Failed to get user info: {str(e)}",
-                )
+            token = token_response.json()
+            
+            # Get user info using the access token
+            headers = {"Authorization": f"Bearer {token['access_token']}"}
+            userinfo_url = f"https://{AUTH0_DOMAIN.value}/userinfo"
+            userinfo_response = await client.get(userinfo_url, headers=headers)
+            userinfo = userinfo_response.json()
 
-        if not userinfo.get('email'):
-            log.error("Email not provided in user info")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email not provided by Auth0",
-            )
+        # Extract user information, using sub as a fallback identifier if email is not provided
+        user_id = userinfo.get('sub')
+        user_email = userinfo.get('email')
+        user_name = userinfo.get('nickname') or userinfo.get('name') or user_id
 
-        # Get or create user
-        user = Users.get_user_by_email(userinfo.get('email'))
+        # Find existing user by Auth0 sub or email
+        user = None
+        if user_email:
+            user = Users.get_user_by_email(user_email)
+        
         if not user:
             if not ENABLE_OAUTH_SIGNUP.value:
-                log.error("Sign up is disabled but user does not exist")
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Sign up is disabled",
                 )
-            log.info(f"Creating new user with email {userinfo.get('email')}")
+            
+            # Create new user with available information
             user = Users.insert_new_user(
                 id=str(uuid.uuid4()),
-                name=userinfo.get('nickname') or userinfo.get('email'),
-                email=userinfo.get('email'),
-                oauth_sub=userinfo.get('sub'),
+                name=user_name,
+                email=user_email,  # Can be None
+                oauth_sub=user_id,
             )
         elif not user.oauth_sub:
-            log.info(f"Updating oauth_sub for user {user.email}")
+            # Update existing user with Auth0 sub if not set
             with get_db() as db:
-                db_user = db.query(User).filter_by(email=user.email).first()
-                db_user.oauth_sub = userinfo.get('sub')
+                db_user = db.query(User).filter_by(email=user_email).first()
+                db_user.oauth_sub = user_id
                 db.commit()
                 user = UserModel.model_validate(db_user)
 
         # Create session
-        expires = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
-        if expires is None:
-            # Default to 30 days if no expiration is set
-            expires = 30 * 24 * 60 * 60  # 30 days in seconds
-        else:
-            expires = int(expires.total_seconds())
+        expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+        if expires_delta is None:
+            expires_delta = datetime.timedelta(days=30)  # Default to 30 days
 
         token = create_token(
             data={"id": user.id},
-            expires_delta=datetime.timedelta(seconds=expires),
+            expires_delta=expires_delta,
         )
 
-        log.info(f"Successfully authenticated user {user.email}")
+        # Redirect with token
         redirect_url = f"{request.base_url.scheme}://{request.base_url.netloc}/auth#token={token}"
         response = RedirectResponse(url=redirect_url)
+        
+        # Set cookie
         response.set_cookie(
-            "token",  # Use 'token' instead of 'session' to match frontend expectations
+            "token",
             token,
-            max_age=expires,
+            max_age=int(expires_delta.total_seconds()),
             httponly=True,
             secure=WEBUI_SESSION_COOKIE_SECURE,
             samesite=WEBUI_SESSION_COOKIE_SAME_SITE,
-            path="/",  # Set cookie for all paths
-            domain=None,  # Use the request's domain
+            path="/",
         )
         return response
 
