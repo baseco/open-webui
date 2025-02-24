@@ -107,10 +107,7 @@ DEFAULT_CONFIG = {
         "default_locale": "",
         "prompt_suggestions": [
             {
-                "title": [
-                    "Help me study",
-                    "vocabulary for a college entrance exam",
-                ],
+                "title": ["Help me study", "vocabulary for a college entrance exam"],
                 "content": "Help me study vocabulary: write a sentence for me to fill in the blank, and I'll try to pick the correct option.",
             },
             {
@@ -863,7 +860,7 @@ ENABLE_SIGNUP = PersistentConfig(
     (
         False
         if not WEBUI_AUTH
-        else os.environ.get("ENABLE_SIGNUP", "True").lower() == "true"
+        else os.environ.get("ENABLE_SIGNUP", "True").lower() == "true",
     ),
 )
 
@@ -914,6 +911,13 @@ DEFAULT_PROMPT_SUGGESTIONS = PersistentConfig(
         {
             "title": ["Overcome procrastination", "give me tips"],
             "content": "Could you start by asking me about instances when I procrastinate the most and then give me some suggestions to overcome it?",
+        },
+        {
+            "title": [
+                "Grammar check",
+                "rewrite it for better readability ",
+            ],
+            "content": 'Check the following sentence for grammar and clarity: "[sentence]". Rewrite it for better readability while maintaining its original meaning.',
         },
     ],
 )
