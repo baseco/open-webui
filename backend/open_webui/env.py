@@ -414,10 +414,24 @@ if OFFLINE_MODE:
 # Auth0 Configuration
 ####################################
 
+# Domain of your Auth0 tenant (e.g., 'your-tenant.auth0.com')
+# This is used to construct the authorization and token endpoints
 AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
+
+# Client ID from your Auth0 application settings
+# Used to identify your application when making requests to Auth0
 AUTH0_CLIENT_ID = os.environ.get("AUTH0_CLIENT_ID", "")
+
+# Client Secret from your Auth0 application settings
+# Used to authenticate your application when exchanging the authorization code for tokens
 AUTH0_CLIENT_SECRET = os.environ.get("AUTH0_CLIENT_SECRET", "")
+
+# The audience value to be used in the token validation
+# This is typically the identifier of your API in Auth0
 AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
+
+# The callback URL where Auth0 will redirect after authentication
+# Must match exactly with the callback URL configured in your Auth0 application settings
 AUTH0_CALLBACK_URL = os.environ.get("AUTH0_CALLBACK_URL", "")
 
 ####################################
