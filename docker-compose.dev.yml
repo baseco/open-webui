@@ -1,0 +1,36 @@
+version: '3.8'
+services:
+  open-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base  # Stop at the base stage, we don't need the final stage for dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/app/backend  # Mount backend code
+      - ./src:/app/src  # Mount frontend source
+      - ./build:/app/build  # Mount build directory
+      - ./.env:/app/.env  # Mount environment file
+      - ./static:/app/static  # Mount static files
+      - ./package.json:/app/package.json  # Mount package.json
+      - ./vite.config.ts:/app/vite.config.ts  # Mount vite config
+      - ./backend/requirements.txt:/app/requirements.txt  # Mount requirements file
+      - ./backend/.webui_secret_key:/app/backend/.webui_secret_key  # Mount secret key file
+      - ./backend/data:/app/backend/data  # Mount data directory
+    environment:
+      - NODE_ENV=development
+      - PYTHONPATH=/app/backend
+      - LOG_LEVEL=debug
+      - WEBUI_AUTH=true
+      - ENABLE_OAUTH_SIGNUP=true
+      - VITE_API_BASE_URL=http://localhost:8080
+      - FRONTEND_BUILD_DIR=/app/build
+      - WEBUI_SECRET_KEY=development_secret_key_123  # Add a development secret key
+      - DATA_DIR=/app/backend/data  # Add data directory path
+    command: >
+      sh -c "cd /app/backend &&
+             mkdir -p data &&
+             pip install -r requirements.txt &&
+             cd /app &&
+             python -m uvicorn open_webui.main:app --host 0.0.0.0 --port 8080 --reload --log-level debug"
