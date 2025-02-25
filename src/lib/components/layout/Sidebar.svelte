@@ -579,13 +579,7 @@
 			<div class="flex justify-center text-gray-800 dark:text-gray-200">
 				<a
 					class="flex-grow flex space-x-3 rounded-lg px-2 py-[7px] hover:bg-gray-100 dark:hover:bg-gray-900 transition {$page.url.pathname === '/images' ? 'bg-gray-100 dark:bg-gray-900' : ''}"
-					href="/images"
-					on:click={() => {
-						goto('/images');
-						if ($mobile) {
-							showSidebar.set(false);
-						}
-					}}
+					href="https://channel.bot"
 				>
 					<div class="self-center">
 						<svg
