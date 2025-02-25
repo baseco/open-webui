@@ -15,6 +15,7 @@
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import OnBoarding from '$lib/components/OnBoarding.svelte';
+	import Auth0Button from '$lib/components/auth/Auth0Button.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -332,6 +333,9 @@
 								<hr class="w-32 h-px my-4 border-0 dark:bg-gray-100/10 bg-gray-700/10" />
 							</div>
 							<div class="flex flex-col space-y-2">
+								{#if $config?.oauth?.providers?.auth0}
+									<Auth0Button />
+								{/if}
 								{#if $config?.oauth?.providers?.google}
 									<button
 										class="flex justify-center items-center bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"

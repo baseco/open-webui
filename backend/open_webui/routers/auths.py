@@ -3,6 +3,8 @@ import uuid
 import time
 import datetime
 import logging
+from open_webui.internal.db import get_db
+from open_webui.models.users import User, UserModel
 from aiohttp import ClientSession
 
 from open_webui.models.auths import (
@@ -34,6 +36,10 @@ from fastapi.responses import RedirectResponse, Response
 from open_webui.config import (
     OPENID_PROVIDER_URL,
     ENABLE_OAUTH_SIGNUP,
+    AUTH0_CALLBACK_URL,
+    AUTH0_CLIENT_ID,
+    AUTH0_CLIENT_SECRET,
+    AUTH0_DOMAIN,
 )
 from pydantic import BaseModel
 from open_webui.utils.misc import parse_duration, validate_email_format
@@ -324,6 +330,139 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
 
 
 ############################
+# Auth0 Authentication
+############################
+
+@router.get("/oauth/auth0/login")
+async def auth0_login(request: Request):
+    """
+    Initiate Auth0 authentication flow by redirecting to Auth0's login page.
+    The user will be presented with Auth0's Universal Login page where they can
+    authenticate using various methods (email/password, social logins, etc.).
+    """
+    from open_webui.utils.oauth import oauth_manager
+    
+    client = oauth_manager.get_client("auth0")
+    return await client.authorize_redirect(
+        request,
+        redirect_uri=AUTH0_CALLBACK_URL.value
+    )
+
+@router.get("/oauth/auth0/callback", name="auth0_callback")
+async def auth0_callback(request: Request, response: Response):
+    """
+    Handle the Auth0 callback after successful authentication.
+    This endpoint:
+    1. Exchanges the authorization code for tokens
+    2. Retrieves user information from Auth0
+    3. Creates or updates the user in our database
+    4. Creates a session for the user
+    """
+    try:
+        import httpx
+        from open_webui.utils.oauth import oauth_manager
+        
+        # Exchange authorization code for tokens
+        token_url = f"https://{AUTH0_DOMAIN.value}/oauth/token"
+        token_data = {
+            'grant_type': 'authorization_code',
+            'client_id': AUTH0_CLIENT_ID.value,
+            'client_secret': AUTH0_CLIENT_SECRET.value,
+            'code': request.query_params.get('code'),
+            'redirect_uri': AUTH0_CALLBACK_URL.value
+        }
+        
+        async with httpx.AsyncClient() as client:
+            # Get access token
+            token_response = await client.post(
+                token_url,
+                data=token_data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            if token_response.status_code != 200:
+                error_data = token_response.json()
+                error_msg = error_data.get('error_description', error_data.get('error', 'Unknown error'))
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Auth0 error: {error_msg}",
+                )
+            
+            token = token_response.json()
+            
+            # Get user info using the access token
+            headers = {"Authorization": f"Bearer {token['access_token']}"}
+            userinfo_url = f"https://{AUTH0_DOMAIN.value}/userinfo"
+            userinfo_response = await client.get(userinfo_url, headers=headers)
+            userinfo = userinfo_response.json()
+
+        # Extract user information, using sub as a fallback identifier if email is not provided
+        user_id = userinfo.get('sub')
+        user_email = userinfo.get('email')
+        user_name = userinfo.get('nickname') or userinfo.get('name') or user_id
+
+        # Find existing user by Auth0 sub or email
+        user = None
+        if user_email:
+            user = Users.get_user_by_email(user_email)
+        
+        if not user:
+            if not ENABLE_OAUTH_SIGNUP.value:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Sign up is disabled",
+                )
+            
+            # Create new user with available information
+            user = Users.insert_new_user(
+                id=str(uuid.uuid4()),
+                name=user_name,
+                email=user_email,  # Can be None
+                oauth_sub=user_id,
+            )
+        elif not user.oauth_sub:
+            # Update existing user with Auth0 sub if not set
+            with get_db() as db:
+                db_user = db.query(User).filter_by(email=user_email).first()
+                db_user.oauth_sub = user_id
+                db.commit()
+                user = UserModel.model_validate(db_user)
+
+        # Create session
+        expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+        if expires_delta is None:
+            expires_delta = datetime.timedelta(days=30)  # Default to 30 days
+
+        token = create_token(
+            data={"id": user.id},
+            expires_delta=expires_delta,
+        )
+
+        # Redirect with token
+        redirect_url = f"{request.base_url.scheme}://{request.base_url.netloc}/auth#token={token}"
+        response = RedirectResponse(url=redirect_url)
+        
+        # Set cookie
+        response.set_cookie(
+            "token",
+            token,
+            max_age=int(expires_delta.total_seconds()),
+            httponly=True,
+            secure=WEBUI_SESSION_COOKIE_SECURE,
+            samesite=WEBUI_SESSION_COOKIE_SAME_SITE,
+            path="/",
+        )
+        return response
+
+    except Exception as e:
+        log.error(f"Auth0 callback error: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to authenticate with Auth0: {str(e)}",
+        )
+
+
+############################
 # SignIn
 ############################
 
@@ -371,19 +510,21 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
 
     if user:
 
-        expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
-        expires_at = None
-        if expires_delta:
-            expires_at = int(time.time()) + int(expires_delta.total_seconds())
+        expires = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+        if expires is None:
+            # Default to 30 days if no expiration is set
+            expires = 30 * 24 * 60 * 60  # 30 days in seconds
+        else:
+            expires = int(expires.total_seconds())
 
         token = create_token(
             data={"id": user.id},
-            expires_delta=expires_delta,
+            expires_delta=datetime.timedelta(seconds=expires),
         )
 
         datetime_expires_at = (
-            datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
-            if expires_at
+            datetime.datetime.fromtimestamp(int(time.time()) + expires, datetime.timezone.utc)
+            if expires
             else None
         )
 
@@ -404,7 +545,7 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
         return {
             "token": token,
             "token_type": "Bearer",
-            "expires_at": expires_at,
+            "expires_at": int(time.time()) + expires,
             "id": user.id,
             "email": user.email,
             "name": user.name,
@@ -471,19 +612,21 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
         )
 
         if user:
-            expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
-            expires_at = None
-            if expires_delta:
-                expires_at = int(time.time()) + int(expires_delta.total_seconds())
+            expires = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+            if expires is None:
+                # Default to 30 days if no expiration is set
+                expires = 30 * 24 * 60 * 60  # 30 days in seconds
+            else:
+                expires = int(expires.total_seconds())
 
             token = create_token(
                 data={"id": user.id},
-                expires_delta=expires_delta,
+                expires_delta=datetime.timedelta(seconds=expires),
             )
 
             datetime_expires_at = (
-                datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
-                if expires_at
+                datetime.datetime.fromtimestamp(int(time.time()) + expires, datetime.timezone.utc)
+                if expires
                 else None
             )
 
@@ -516,7 +659,7 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
             return {
                 "token": token,
                 "token_type": "Bearer",
-                "expires_at": expires_at,
+                "expires_at": int(time.time()) + expires,
                 "id": user.id,
                 "email": user.email,
                 "name": user.name,

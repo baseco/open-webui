@@ -31,6 +31,10 @@ APScheduler==3.10.4
 
 RestrictedPython==8.0
 
+# Auth dependencies
+python-jose[cryptography]  # For JWT handling
+authlib  # For OAuth/OpenID Connect
+
 # AI libraries
 openai
 anthropic
