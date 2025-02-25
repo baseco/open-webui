@@ -37,6 +37,7 @@
 		showChangelog,
 		temporaryChatEnabled
 	} from '$lib/stores';
+	import { customUIControls } from '../../custom/stores';
 
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import SettingsModal from '$lib/components/chat/SettingsModal.svelte';
@@ -183,7 +184,7 @@
 				}
 			});
 
-			if ($user.role === 'admin' && ($settings?.showChangelog ?? true)) {
+			if ($user.role === 'admin' && ($settings?.showChangelog ?? true) && $customUIControls.showChangelog) {
 				showChangelog.set($settings?.version !== $config.version);
 			}
 
@@ -224,7 +225,7 @@
 <SettingsModal bind:show={$showSettings} />
 <ChangelogModal bind:show={$showChangelog} />
 
-{#if version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
+{#if version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true) && $customUIControls.showUpdateNotifications}
 	<div class=" absolute bottom-8 right-8 z-50" in:fade={{ duration: 100 }}>
 		<UpdateInfoToast
 			{version}

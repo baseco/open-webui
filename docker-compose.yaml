@@ -11,13 +11,11 @@ services:
   open-webui:
     build:
       context: .
-      args:
-        OLLAMA_BASE_URL: '/ollama'
       dockerfile: Dockerfile
-    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
     container_name: open-webui
     volumes:
       - open-webui:/app/backend/data
+      - ./.env:/app/.env
     depends_on:
       - ollama
     ports:
