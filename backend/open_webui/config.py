@@ -541,6 +541,7 @@ def load_oauth_providers():
                 authorize_url=f"https://{AUTH0_DOMAIN.value}/authorize",
                 api_base_url=f"https://{AUTH0_DOMAIN.value}",
                 userinfo_endpoint=f"https://{AUTH0_DOMAIN.value}/userinfo",
+                jwks_uri=f"https://{AUTH0_DOMAIN.value}/.well-known/jwks.json",
                 client_kwargs={
                     "scope": "openid profile email",
                     "response_type": "code",

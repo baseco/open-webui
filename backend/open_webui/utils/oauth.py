@@ -437,3 +437,17 @@ class OAuthManager:
         # Redirect back to the frontend with the JWT token
         redirect_url = f"{request.base_url}auth#token={jwt_token}"
         return RedirectResponse(url=redirect_url, headers=response.headers)
+
+# This will be filled by main.py after app initialization
+oauth_manager = None
+
+# Import deferred to avoid circular imports
+def initialize_oauth_manager():
+    global oauth_manager
+    if oauth_manager is None:
+        import logging
+        logging.getLogger("open_webui.oauth").error("Initializing OAuth manager directly in oauth.py")
+        from fastapi import FastAPI
+        app = FastAPI()
+        oauth_manager = OAuthManager(app)
+    return oauth_manager

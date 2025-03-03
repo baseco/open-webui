@@ -330,10 +330,11 @@ from open_webui.utils.middleware import process_chat_payload, process_chat_respo
 from open_webui.utils.access_control import has_access
 
 from open_webui.utils.auth import (
-    get_license_data,
-    decode_token,
+    get_current_user,
     get_admin_user,
     get_verified_user,
+    get_license_data,
+    decode_token,
 )
 from open_webui.utils.oauth import OAuthManager
 from open_webui.utils.security_headers import SecurityHeadersMiddleware
@@ -395,13 +396,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    docs_url="/docs" if ENV == "dev" else None,
-    openapi_url="/openapi.json" if ENV == "dev" else None,
-    redoc_url=None,
+    title="Open WebUI API",
+    version=VERSION,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
     lifespan=lifespan,
 )
 
+# Initialize OAuth manager and assign to module-level variable
 oauth_manager = OAuthManager(app)
+# Update the module-level variable in oauth.py
+from open_webui.utils.oauth import oauth_manager as oauth_manager_module
+oauth_manager_module = oauth_manager
 
 app.state.config = AppConfig()
 
@@ -1254,6 +1260,9 @@ if len(OAUTH_PROVIDERS) > 0:
 
 @app.get("/oauth/{provider}/login")
 async def oauth_login(provider: str, request: Request):
+    # Intercept auth0 logins and redirect to the endpoint that matches Auth0 config
+    if provider == "auth0":
+        return RedirectResponse(url="/api/v1/auths/oauth/auth0/login")
     return await oauth_manager.handle_login(request, provider)
 
 
