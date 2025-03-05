@@ -310,3 +310,7 @@ cypress/screenshots
 docker-compose.dev.yml
 docker-compose.personal.yml
 start-local.sh
+docker-compose.hot-reload.yml
+Dockerfile.dev
+start-dev.sh
+logs/
