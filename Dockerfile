@@ -23,6 +23,7 @@ ARG GID=0
 ######## WebUI frontend ########
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
 ARG BUILD_HASH
+ARG NODE_OPTIONS=--max-old-space-size=16384
 
 WORKDIR /app
 

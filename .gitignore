@@ -308,3 +308,5 @@ cypress/videos
 cypress/screenshots
 .vscode/settings.json
 docker-compose.dev.yml
+docker-compose.personal.yml
+start-local.sh
