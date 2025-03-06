@@ -91,26 +91,45 @@
 	};
 
 	const checkOauthCallback = async () => {
-		if (!$page.url.hash) {
+		// Check for token in URL search params
+		const urlParams = new URLSearchParams(window.location.search);
+		const token = urlParams.get('token');
+		
+		if (token) {
+			const sessionUser = await getSessionUser(token).catch((error) => {
+				toast.error(`${error}`);
+				return null;
+			});
+			if (!sessionUser) {
+				return;
+			}
+			localStorage.token = token;
+			await setSessionUser(sessionUser);
+		} else if (!$page.url.hash) {
 			return;
 		}
+		
+		// Check for token in URL hash fragment
 		const hash = $page.url.hash.substring(1);
 		if (!hash) {
 			return;
 		}
+		
 		const params = new URLSearchParams(hash);
-		const token = params.get('token');
-		if (!token) {
+		const hashToken = params.get('token');
+		
+		if (!hashToken) {
 			return;
 		}
-		const sessionUser = await getSessionUser(token).catch((error) => {
+		
+		const sessionUser = await getSessionUser(hashToken).catch((error) => {
 			toast.error(`${error}`);
 			return null;
 		});
 		if (!sessionUser) {
 			return;
 		}
-		localStorage.token = token;
+		localStorage.token = hashToken;
 		await setSessionUser(sessionUser);
 	};
 

@@ -32,7 +32,7 @@ from open_webui.env import (
     SRC_LOG_LEVELS,
 )
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, HTMLResponse
 from open_webui.config import (
     OPENID_PROVIDER_URL,
     ENABLE_OAUTH_SIGNUP,
@@ -342,37 +342,113 @@ async def auth0_login(request: Request):
     """
     import logging
     from open_webui.utils.oauth import oauth_manager, initialize_oauth_manager
+    import os
     
     logger = logging.getLogger("open_webui.auths")
-    logger.error("Handling Auth0 login with correct callback URL")
+    logger.info("Handling Auth0 login with correct callback URL")
+    logger.info(f"Current environment AUTH0_CLIENT_ID: {os.environ.get('AUTH0_CLIENT_ID', 'None')}")
+    logger.info(f"Current AUTH0_CLIENT_ID config value: {AUTH0_CLIENT_ID.value}")
     
-    if oauth_manager is None:
-        oauth_manager = initialize_oauth_manager()
+    oauth_mgr = oauth_manager
+    if oauth_mgr is None:
+        logger.info("Initializing OAuth manager")
+        oauth_mgr = initialize_oauth_manager()
+    
+    # Use the environment variable for the callback URL
+    callback_url = AUTH0_CALLBACK_URL.value
+    logger.info(f"Using callback URL from environment: {callback_url}")
     
     # Use the Auth0 client but with our specific callback URL
-    client = oauth_manager.get_client("auth0")
+    client = oauth_mgr.get_client("auth0")
     return await client.authorize_redirect(
         request,
-        redirect_uri=AUTH0_CALLBACK_URL.value
+        redirect_uri=callback_url
     )
 
 
-@router.get("/oauth/auth0/callback", name="auth0_callback")
-async def auth0_callback(request: Request, response: Response):
+@router.get("/oauth/auth0")
+async def login_auth0(request: Request):
     """
-    Handle the Auth0 callback after successful authentication.
+    Redirect to Auth0 login page
     """
     import logging
     from open_webui.utils.oauth import oauth_manager, initialize_oauth_manager
     
     logger = logging.getLogger("open_webui.auths")
-    logger.error("Handling Auth0 callback directly")
+    logger.info("Redirecting to Auth0 login page")
     
-    if oauth_manager is None:
-        oauth_manager = initialize_oauth_manager()
+    oauth_mgr = oauth_manager
+    if oauth_mgr is None:
+        logger.info("Initializing OAuth manager")
+        oauth_mgr = initialize_oauth_manager()
     
-    # Use the oauth_manager to handle the callback
-    return await oauth_manager.handle_callback(request, "auth0", response)
+    try:
+        return await oauth_mgr.login(request, "auth0")
+    except Exception as e:
+        logger.error(f"Error redirecting to Auth0: {str(e)}")
+        logger.exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error redirecting to Auth0: {str(e)}"
+        )
+
+
+@router.get("/oauth/auth0/callback")
+async def auth0_callback(request: Request, response: Response, code: str = None, state: str = None):
+    """ Auth0 callback endpoint """
+    import logging
+    from open_webui.utils.oauth import oauth_manager, initialize_oauth_manager
+    
+    logger = logging.getLogger("open_webui.auths")
+    logger.info(f"Handling Auth0 callback with code: {code[:5] if code else None}... and state: {state[:5] if state else None}...")
+    logger.info(f"Full request URL: {request.url}")
+    logger.info(f"Request query params: {request.query_params}")
+    
+    try:
+        oauth_mgr = oauth_manager
+        if oauth_mgr is None:
+            logger.info("Initializing OAuth manager")
+            oauth_mgr = initialize_oauth_manager()
+            
+        # Get the user information from Auth0
+        result = await oauth_mgr.handle_callback(request, "auth0", response)
+        
+        # The result could be a RedirectResponse object or a JWT token
+        if isinstance(result, RedirectResponse):
+            logger.info("Got RedirectResponse directly from OAuth manager")
+            return result
+        
+        token = result
+        if not token:
+            logger.error("Failed to get token from Auth0")
+            return RedirectResponse(url=f"/?error=auth0_error")
+        
+        # Determine the frontend URL
+        # In development, we need to redirect back to port 5173 (Vite server)
+        # The callback URL format should be: http://localhost:5173/api/v1/auths/oauth/auth0/callback
+        # We extract the frontend base URL from the callback URL env variable
+        frontend_url = ""
+        callback_url = str(AUTH0_CALLBACK_URL.value)
+        logger.info(f"Auth0 callback URL: {callback_url}")
+        
+        # Extract the frontend base URL from the callback URL
+        # e.g., http://localhost:5173/api/v1/auths/oauth/auth0/callback -> http://localhost:5173
+        if "/api/" in callback_url:
+            frontend_url = callback_url.split("/api/")[0]
+            logger.info(f"Extracted frontend URL from callback URL: {frontend_url}")
+        else:
+            # Fallback to default localhost URL if we can't determine from callback URL
+            frontend_url = "http://localhost:5173"
+            logger.info(f"Using default frontend URL: {frontend_url}")
+        
+        # Redirect to frontend with token
+        redirect_url = f"{frontend_url}/auth?token={token}"
+        logger.info(f"Redirecting to frontend: {redirect_url}")
+        return RedirectResponse(url=redirect_url)
+    except Exception as e:
+        logger.error(f"Error in Auth0 callback: {str(e)}")
+        logger.exception(e)
+        return RedirectResponse(url=f"/?error={str(e)}")
 
 
 ############################
