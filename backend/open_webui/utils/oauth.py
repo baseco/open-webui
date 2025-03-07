@@ -146,7 +146,7 @@ class OAuthManager:
             nested_claims = oauth_claim.split(".")
             for nested_claim in nested_claims:
                 claim_data = claim_data.get(nested_claim, {})
-            user_oauth_groups = claim_data if isinstance(claim_data, list) else None
+            user_oauth_groups = claim_data if isinstance(claim_data, list) else []
 
         user_current_groups: list[GroupModel] = Groups.get_groups_by_member_id(user.id)
         all_available_groups: list[GroupModel] = Groups.get_groups()
@@ -458,22 +458,44 @@ class OAuthManager:
                 )
             
             log.error(f"Redirecting back to frontend with JWT token")
-            # Redirect back to the frontend with the JWT token
-            from open_webui.config import AUTH0_CALLBACK_URL
-            
-            # Get the frontend base URL from the callback URL to properly handle the development environment
-            callback_url = str(AUTH0_CALLBACK_URL.value)
-            frontend_url = ""
-            
-            # Extract frontend URL from callback URL
-            if "/api/" in callback_url:
-                frontend_url = callback_url.split("/api/")[0]
+            # Extract frontend URL for redirect from Auth0 callback URL
+            # From a URL like http://localhost:8080/api/auth/callback/auth0,
+            # we need to extract http://localhost:5173 for development
+            if provider == "auth0" and auth_manager_config.AUTH0_CALLBACK_URL:
+                # Parse the callback URL to get the frontend URL
+                try:
+                    from urllib.parse import urlparse
+                    from open_webui.config import AUTH0_CALLBACK_URL
+                    
+                    callback_url = urlparse(AUTH0_CALLBACK_URL)
+                    # For development, replace port 8080 with 5173 to redirect to frontend
+                    if callback_url.port == 8080:
+                        frontend_base_url = f"{callback_url.scheme}://{callback_url.hostname}:5173"
+                    else:
+                        frontend_base_url = f"{callback_url.scheme}://{callback_url.netloc}"
+                    
+                    # Redirect to frontend with token
+                    redirect_url = f"{frontend_base_url}/auth?token={jwt_token}"
+                    return RedirectResponse(url=redirect_url)
+                except Exception as e:
+                    log.error(f"Error parsing Auth0 callback URL: {e}")
             else:
-                # Fallback to base URL if we can't determine from callback URL
-                frontend_url = str(request.base_url).rstrip("/")
-            
-            redirect_url = f"{frontend_url}/auth#token={jwt_token}"
-            return RedirectResponse(url=redirect_url, headers=response.headers)
+                # Redirect back to the frontend with the JWT token
+                from open_webui.config import AUTH0_CALLBACK_URL
+                
+                # Get the frontend base URL from the callback URL to properly handle the development environment
+                callback_url = str(AUTH0_CALLBACK_URL)
+                frontend_url = ""
+                
+                # Extract frontend URL from callback URL
+                if "/api/" in callback_url:
+                    frontend_url = callback_url.split("/api/")[0]
+                else:
+                    # Fallback to base URL if we can't determine from callback URL
+                    frontend_url = str(request.base_url).rstrip("/")
+                
+                redirect_url = f"{frontend_url}/auth#token={jwt_token}"
+                return RedirectResponse(url=redirect_url)
         except Exception as e:
             log.error(f"Unexpected error in handle_callback: {str(e)}")
             log.exception(e)
