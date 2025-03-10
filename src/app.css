@@ -32,6 +32,7 @@ code {
 	/* white-space-collapse: preserve !important; */
 	overflow-x: auto;
 	width: auto;
+	font-family: 'IBM Plex Mono', monospace;
 }
 
 .font-secondary {
@@ -67,7 +68,7 @@ math {
 }
 
 .font-primary {
-	font-family: 'Archivo', sans-serif;
+	font-family: 'DM Sans', sans-serif;
 }
 
 .drag-region {

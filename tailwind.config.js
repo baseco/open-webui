@@ -23,6 +23,10 @@ export default {
 					950: 'var(--color-gray-950, #0d0d0d)'
 				}
 			},
+			fontFamily: {
+				'sans': ['DM Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+				'mono': ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'monospace']
+			},
 			typography: {
 				DEFAULT: {
 					css: {

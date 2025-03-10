@@ -338,6 +338,12 @@ WEBUI_AUTH_TRUSTED_EMAIL_HEADER = os.environ.get(
     "WEBUI_AUTH_TRUSTED_EMAIL_HEADER", None
 )
 WEBUI_AUTH_TRUSTED_NAME_HEADER = os.environ.get("WEBUI_AUTH_TRUSTED_NAME_HEADER", None)
+WEBUI_AUTH_TRUSTED_IP_HEADER = os.environ.get("WEBUI_AUTH_TRUSTED_IP_HEADER", None)
+WEBUI_AUTH_HIDE_TABS = os.environ.get("WEBUI_AUTH_HIDE_TABS", "").split(",")
+
+# For backward compatibility
+ENABLE_AUTH = WEBUI_AUTH
+HIDE_API_ENDPOINTS = os.environ.get("HIDE_API_ENDPOINTS", "False").lower() == "true"
 
 BYPASS_MODEL_ACCESS_CONTROL = (
     os.environ.get("BYPASS_MODEL_ACCESS_CONTROL", "False").lower() == "true"
