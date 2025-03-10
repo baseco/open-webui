@@ -105,7 +105,7 @@ async def get_session_user(
         key="token",
         value=token,
         expires=datetime_expires_at,
-        httponly=True,  # Ensures the cookie is not accessible via JavaScript
+        httponly=False,  # Allow JavaScript to access the cookie
         samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
         secure=WEBUI_AUTH_COOKIE_SECURE,
     )
@@ -304,7 +304,7 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
                 response.set_cookie(
                     key="token",
                     value=token,
-                    httponly=True,  # Ensures the cookie is not accessible via JavaScript
+                    httponly=False,  # Allow JavaScript to access the cookie
                 )
 
                 user_permissions = get_permissions(
@@ -360,7 +360,7 @@ async def auth0_login(request: Request):
     # Use the environment variable for the callback URL
     callback_url = AUTH0_CALLBACK_URL.value
     logger.info(f"Using callback URL from environment: {callback_url}")
-    
+
     # Use the Auth0 client but with our specific callback URL
     client = oauth_mgr.get_client("auth0")
     return await client.authorize_redirect(
@@ -400,12 +400,11 @@ async def login_auth0(request: Request):
 async def auth0_callback(request: Request, response: Response, code: str = None, state: str = None):
     """ Auth0 callback endpoint """
     import logging
+    import os
     from open_webui.utils.oauth import oauth_manager, initialize_oauth_manager
     
     logger = logging.getLogger("open_webui.auths")
     logger.info(f"Handling Auth0 callback with code: {code[:5] if code else None}... and state: {state[:5] if state else None}...")
-    logger.info(f"Full request URL: {request.url}")
-    logger.info(f"Request query params: {request.query_params}")
     
     try:
         oauth_mgr = oauth_manager
@@ -415,43 +414,94 @@ async def auth0_callback(request: Request, response: Response, code: str = None,
             
         # Get the user information from Auth0
         result = await oauth_mgr.handle_callback(request, "auth0", response)
+
+        if not result:
+            log.error("No result returned from Auth0 callback")
+            return RedirectResponse(url=f"{request.base_url}/?error=No result from Auth0")
+
+        # Extract user data and token from the result
+        user_data = result.get("user_data", {})
+        jwt_token = result.get("jwt_token", "")
+        frontend_base_url = result.get("frontend_base_url", "")
+
+        if not user_data:
+            log.error("No user data returned from Auth0 callback")
+            return RedirectResponse(url=f"{request.base_url}/?error=No user data from Auth0")
+
+        # Try to find existing user by email
+        log.info(f"Auth0 user data: {user_data}")
+        email = user_data.get("email", "").lower()
         
-        # The result could be a RedirectResponse object or a JWT token
-        if isinstance(result, RedirectResponse):
-            logger.info("Got RedirectResponse directly from OAuth manager")
-            return result
+        if not email:
+            log.error("No email in Auth0 user data")
+            return RedirectResponse(url=f"{request.base_url}/?error=No email in Auth0 profile")
         
-        token = result
-        if not token:
-            logger.error("Failed to get token from Auth0")
-            return RedirectResponse(url=f"/?error=auth0_error")
+        # Use the correct method name: get_user_by_email instead of get_by_email
+        user = Users.get_user_by_email(email)
+        if not user:
+            if ENABLE_OAUTH_SIGNUP.value:
+                # Create new user
+                name = user_data.get("name", "") or user_data.get("nickname", "") or email.split("@")[0]
+                user = Users.create(
+                    email=email,
+                    name=name,
+                    profile_image_url=user_data.get("picture", ""),
+                    oauth_provider="auth0",
+                    oauth_user_id=user_data.get("sub", ""),
+                )
+                log.info(f"Created new user from Auth0: {email}")
+            else:
+                log.error("OAuth signup is disabled")
+                return RedirectResponse(url=f"{request.base_url}/?error=OAuth signup is disabled")
         
-        # Determine the frontend URL
-        # In development, we need to redirect back to port 5173 (Vite server)
-        # The callback URL format should be: http://localhost:5173/api/v1/auths/oauth/auth0/callback
-        # We extract the frontend base URL from the callback URL env variable
-        frontend_url = ""
-        callback_url = str(AUTH0_CALLBACK_URL.value)
-        logger.info(f"Auth0 callback URL: {callback_url}")
+        # Generate a valid JWT token for the user
+        expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+        jwt_token = create_token(
+            data={"id": user.id},
+            expires_delta=expires_delta,
+        )
         
-        # Extract the frontend base URL from the callback URL
-        # e.g., http://localhost:5173/api/v1/auths/oauth/auth0/callback -> http://localhost:5173
-        if "/api/" in callback_url:
-            frontend_url = callback_url.split("/api/")[0]
-            logger.info(f"Extracted frontend URL from callback URL: {frontend_url}")
-        else:
-            # Fallback to default localhost URL if we can't determine from callback URL
-            frontend_url = "http://localhost:5173"
-            logger.info(f"Using default frontend URL: {frontend_url}")
+        # Set cookie 
+        expires_at = None
+        if expires_delta:
+            expires_at = int(time.time()) + int(expires_delta.total_seconds())
         
-        # Redirect to frontend with token
-        redirect_url = f"{frontend_url}/auth?token={token}"
-        logger.info(f"Redirecting to frontend: {redirect_url}")
+        datetime_expires_at = (
+            datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
+            if expires_at
+            else None
+        )
+        
+        response.set_cookie(
+            key="token",
+            value=jwt_token,
+            expires=datetime_expires_at,
+            httponly=False,  # Allow JavaScript to access the cookie
+            samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+            secure=WEBUI_AUTH_COOKIE_SECURE,
+        )
+        
+        # Use the frontend_base_url that was already calculated by the OAuth manager
+        frontend_url = frontend_base_url
+
+        # If for some reason we didn't get a frontend_base_url, use a simpler approach
+        if not frontend_url:
+            # For development environment, default to localhost:5173
+            if "localhost" in str(request.base_url) or "127.0.0.1" in str(request.base_url):
+                frontend_url = "http://localhost:5173"
+            else:
+                # For production, use the base URL from the request
+                frontend_url = str(request.base_url).rstrip("/")
+
+        # Redirect to the frontend with token
+        redirect_url = f"{frontend_url}/auth?token={jwt_token}"
+        
         return RedirectResponse(url=redirect_url)
+            
     except Exception as e:
-        logger.error(f"Error in Auth0 callback: {str(e)}")
-        logger.exception(e)
-        return RedirectResponse(url=f"/?error={str(e)}")
+        log.error(f"Error in Auth0 callback: {str(e)}")
+        log.exception(e)
+        return RedirectResponse(url=f"{request.base_url}/?error=Authentication error: {str(e)}")
 
 
 ############################
@@ -525,7 +575,7 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
             key="token",
             value=token,
             expires=datetime_expires_at,
-            httponly=True,  # Ensures the cookie is not accessible via JavaScript
+            httponly=False,  # Allow JavaScript to access the cookie
             samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
             secure=WEBUI_AUTH_COOKIE_SECURE,
         )
@@ -622,7 +672,7 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
                 key="token",
                 value=token,
                 expires=datetime_expires_at,
-                httponly=True,  # Ensures the cookie is not accessible via JavaScript
+                httponly=False,  # Allow JavaScript to access the cookie
                 samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
                 secure=WEBUI_AUTH_COOKIE_SECURE,
             )
