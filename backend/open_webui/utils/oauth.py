@@ -447,7 +447,7 @@ class OAuthManager:
                 secure=WEBUI_AUTH_COOKIE_SECURE,
             )
 
-            if ENABLE_OAUTH_SIGNUP.value:
+            if auth_manager_config.ENABLE_OAUTH_SIGNUP:
                 oauth_id_token = token.get("id_token")
                 response.set_cookie(
                     key="oauth_id_token",
@@ -457,48 +457,35 @@ class OAuthManager:
                     secure=WEBUI_AUTH_COOKIE_SECURE,
                 )
             
-            log.error(f"Redirecting back to frontend with JWT token")
-            # Extract frontend URL for redirect from Auth0 callback URL
-            # From a URL like http://localhost:8080/api/auth/callback/auth0,
-            # we need to extract http://localhost:5173 for development
-            if provider == "auth0" and auth_manager_config.AUTH0_CALLBACK_URL:
-                # Parse the callback URL to get the frontend URL
-                try:
-                    from urllib.parse import urlparse
-                    from open_webui.config import AUTH0_CALLBACK_URL
-                    
-                    callback_url = urlparse(AUTH0_CALLBACK_URL)
-                    # For development, replace port 8080 with 5173 to redirect to frontend
-                    if callback_url.port == 8080:
-                        frontend_base_url = f"{callback_url.scheme}://{callback_url.hostname}:5173"
-                    else:
-                        frontend_base_url = f"{callback_url.scheme}://{callback_url.netloc}"
-                    
-                    # Redirect to frontend with token
-                    redirect_url = f"{frontend_base_url}/auth?token={jwt_token}"
-                    return RedirectResponse(url=redirect_url)
-                except Exception as e:
-                    log.error(f"Error parsing Auth0 callback URL: {e}")
-            else:
-                # Redirect back to the frontend with the JWT token
+            # Get frontend URL for redirect based on the callback URL
+            try:
                 from open_webui.config import AUTH0_CALLBACK_URL
+                callback_url_str = AUTH0_CALLBACK_URL.value
                 
-                # Get the frontend base URL from the callback URL to properly handle the development environment
-                callback_url = str(AUTH0_CALLBACK_URL)
-                frontend_url = ""
-                
-                # Extract frontend URL from callback URL
-                if "/api/" in callback_url:
-                    frontend_url = callback_url.split("/api/")[0]
+                # For development environments, replace backend port with frontend port
+                if "localhost:8080" in callback_url_str or "127.0.0.1:8080" in callback_url_str:
+                    frontend_url = callback_url_str.replace(":8080", ":5173")
                 else:
-                    # Fallback to base URL if we can't determine from callback URL
-                    frontend_url = str(request.base_url).rstrip("/")
+                    # For production, remove API path component
+                    frontend_url = callback_url_str.split("/api/")[0] if "/api/" in callback_url_str else str(request.base_url).rstrip("/")
                 
-                redirect_url = f"{frontend_url}/auth#token={jwt_token}"
-                return RedirectResponse(url=redirect_url)
+                # Return user data and necessary redirect information
+                return {
+                    "user_data": user_data,
+                    "jwt_token": jwt_token,
+                    "frontend_base_url": frontend_url
+                }
+            except Exception as e:
+                # Simple fallback using request base URL
+                base_url = str(request.base_url).rstrip("/")
+                frontend_url = base_url.replace(":8080", ":5173") if ":8080" in base_url else base_url
+                
+                return {
+                    "user_data": user_data,
+                    "jwt_token": jwt_token,
+                    "frontend_base_url": frontend_url
+                }
         except Exception as e:
-            log.error(f"Unexpected error in handle_callback: {str(e)}")
-            log.exception(e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Authentication error: {str(e)}"

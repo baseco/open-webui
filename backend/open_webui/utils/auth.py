@@ -27,6 +27,7 @@ import ipaddress
 import json
 import time
 from typing import Optional, Union, List, Dict
+from datetime import timedelta
 
 from open_webui.models.users import Users
 
@@ -36,14 +37,7 @@ from open_webui.env import (
     TRUSTED_SIGNATURE_KEY,
     STATIC_DIR,
     SRC_LOG_LEVELS,
-    ENABLE_AUTH,
-    HIDE_API_ENDPOINTS,
-    IPAPI_API_KEY,
-    IPSTACK_API_KEY,
-    OAUTH_PROVIDERS,
     WEBUI_AUTH,
-    WEBUI_AUTH_HIDE_TABS,
-    WEBUI_AUTH_TRUSTED_IP_HEADER,
     WEBUI_AUTH_TRUSTED_NAME_HEADER,
 )
 
@@ -275,7 +269,7 @@ async def get_current_user(
     if not token and "token" in request.cookies:
         token = request.cookies.get("token")
 
-    if token and len(token.split(".")) == 1 and request.app.state.config.ENABLE_API_KEYS:
+    if token and len(token.split(".")) == 1 and request.app.state.config.WEBUI_AUTH:
         # This might be an API key
 
         # First, check if API keys are allowed for this endpoint
@@ -303,7 +297,7 @@ async def get_current_user(
 
             return get_current_user_by_api_key(token)
 
-        # Try JWT token authentication
+    if token and len(token.split(".")) > 1:
         try:
             data = decode_token(token)
             if data is not None and "id" in data:
