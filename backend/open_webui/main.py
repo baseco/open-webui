@@ -1154,10 +1154,10 @@ async def get_app_config(request: Request):
     onboarding = False
 
     if user is None:
-        onboarding = user_count == 0
+        pass  # onboarding remains False
 
     return {
-        **({"onboarding": True} if onboarding else {}),
+        **({"onboarding": False} if onboarding else {}),
         "status": True,
         "name": app.state.WEBUI_NAME,
         "version": VERSION,
