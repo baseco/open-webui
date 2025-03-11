@@ -189,6 +189,7 @@
 				<div class=" self-center truncate">{$i18n.t('Sign Out')}</div>
 			</button>
 
+			<!-- Active Users section hidden as per WEB-54
 			{#if $activeUserIds?.length > 0}
 				<hr class=" border-gray-100 dark:border-gray-850 my-1 p-0" />
 
@@ -218,6 +219,7 @@
 					</div>
 				</Tooltip>
 			{/if}
+			-->
 
 			<!-- <DropdownMenu.Item class="flex items-center px-3 py-2 text-sm ">
 				<div class="flex items-center">Profile</div>
