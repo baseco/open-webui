@@ -1,0 +1,30 @@
+version: 0.2
+env:
+  shell: bash
+  variables:
+    REPOSITORY_URI: '659219173416.dkr.ecr.us-west-2.amazonaws.com/channel-webui'
+
+phases:
+  install:
+    runtime-versions:
+      docker: 23
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 659219173416.dkr.ecr.us-west-2.amazonaws.com
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+  build:
+    commands:
+      - echo $IMAGE_TAG
+      - echo $REPOSITORY_URI
+      - docker build . -t $REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - printf '[{"name":"webui","imageUri":"%s"}]'  $REPOSITORY_URI:$IMAGE_TAG > channel-webui.json
+artifacts:
+  files:
+    - channel-webui.json
