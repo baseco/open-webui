@@ -2,6 +2,7 @@
 	import { io } from 'socket.io-client';
 	import { spring } from 'svelte/motion';
 	import PyodideWorker from '$lib/workers/pyodide.worker?worker';
+	import { initializeAnalytics } from '$lib/services/analytics';
 
 	let loadingProgress = spring(0, {
 		stiffness: 0.05
@@ -400,6 +401,9 @@
 			window.applyTheme();
 		}
 
+		// Initialize Amplitude analytics
+		initializeAnalytics();
+		
 		if (window?.electronAPI) {
 			const info = await window.electronAPI.send({
 				type: 'app:info'

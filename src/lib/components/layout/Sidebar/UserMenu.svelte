@@ -9,6 +9,7 @@
 	import { fade, slide } from 'svelte/transition';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { userSignOut } from '$lib/apis/auths';
+	import { trackUserLoggedOut } from '$lib/services/analytics';
 
 	const i18n = getContext('i18n');
 
@@ -158,6 +159,11 @@
 			<button
 				class="flex rounded-md py-2 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition"
 				on:click={async () => {
+					// Track user logout event before signing out
+					if ($user && $user.id) {
+						trackUserLoggedOut($user.id);
+					}
+					
 					await userSignOut();
 					user.set(null);
 
