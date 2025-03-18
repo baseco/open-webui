@@ -1320,7 +1320,7 @@
 		}
 
 		// Track message sent event
-		if ($chatId && $chatId !== 'local' && $chatId !== 'temporary chat') {
+		if ($chatId && $chatId !== 'local') {
 			trackMessageSent(
 				$chatId,
 				userMessageId,

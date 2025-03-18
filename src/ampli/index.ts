@@ -56,11 +56,73 @@ export interface IdentifyProperties {
   "Signup Time"?: string;
 }
 
+export interface ConversationStartedProperties {
+  conversationId: string;
+  isMultiModel: string;
+  /**
+   * misspelled, do not use
+   *
+   * | Rule | Value |
+   * |---|---|
+   * | Item Type | string |
+   */
+  modeIdList?: string[];
+  /**
+   * | Rule | Value |
+   * |---|---|
+   * | Item Type | string |
+   */
+  modelIdList: string[];
+  primaryModelId: string;
+}
+
+export interface MessageSentProperties {
+  conversationId: string;
+  isMultiModel: string;
+  messageId: string;
+  /**
+   * | Rule | Value |
+   * |---|---|
+   * | Type | number |
+   */
+  messageLength: number;
+  /**
+   * | Rule | Value |
+   * |---|---|
+   * | Min Items | 1 |
+   * | Item Type | string |
+   *
+   * @minItems 1
+   */
+  modelIdList: [string, ...string[]];
+  primaryModelId: string;
+}
+
 export class Identify implements BaseEvent {
   event_type = amplitude.Types.SpecialEventType.IDENTIFY;
 
   constructor(
     public event_properties?: IdentifyProperties,
+  ) {
+    this.event_properties = event_properties;
+  }
+}
+
+export class ConversationStarted implements BaseEvent {
+  event_type = 'Conversation Started';
+
+  constructor(
+    public event_properties: ConversationStartedProperties,
+  ) {
+    this.event_properties = event_properties;
+  }
+}
+
+export class MessageSent implements BaseEvent {
+  event_type = 'Message Sent';
+
+  constructor(
+    public event_properties: MessageSentProperties,
   ) {
     this.event_properties = event_properties;
   }
@@ -193,6 +255,40 @@ export class Ampli {
     }
 
     return this.amplitude!.track(event, undefined, options);
+  }
+
+  /**
+   * Conversation Started
+   *
+   * [View in Tracking Plan](https://data.amplitude.com/mushroom/Nexus/events/main/latest/Conversation%20Started)
+   *
+   * Event has no description in tracking plan.
+   *
+   * @param properties The event's properties (e.g. conversationId)
+   * @param options Amplitude event options.
+   */
+  conversationStarted(
+    properties: ConversationStartedProperties,
+    options?: EventOptions,
+  ) {
+    return this.track(new ConversationStarted(properties), options);
+  }
+
+  /**
+   * Message Sent
+   *
+   * [View in Tracking Plan](https://data.amplitude.com/mushroom/Nexus/events/main/latest/Message%20Sent)
+   *
+   * Event has no description in tracking plan.
+   *
+   * @param properties The event's properties (e.g. conversationId)
+   * @param options Amplitude event options.
+   */
+  messageSent(
+    properties: MessageSentProperties,
+    options?: EventOptions,
+  ) {
+    return this.track(new MessageSent(properties), options);
   }
 
   /**
