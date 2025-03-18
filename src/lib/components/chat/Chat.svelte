@@ -50,6 +50,8 @@
 		getPromptVariables
 	} from '$lib/utils';
 
+	import { trackConversationStarted, trackMessageSent } from '$lib/services/analytics';
+
 	import { generateChatCompletion } from '$lib/apis/ollama';
 	import {
 		addTagById,
@@ -1317,6 +1319,16 @@
 			history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
 		}
 
+		// Track message sent event
+		if ($chatId && $chatId !== 'local' && $chatId !== 'temporary chat') {
+			trackMessageSent(
+				$chatId,
+				userMessageId,
+				userPrompt,
+				selectedModels
+			);
+		}
+
 		// focus on chat input
 		const chatInput = document.getElementById('chat-input');
 		chatInput?.focus();
@@ -1333,7 +1345,7 @@
 		{ modelId = null, modelIdx = null, newChat = false } = {}
 	) => {
 		let _chatId = JSON.parse(JSON.stringify($chatId));
-		_history = JSON.parse(JSON.stringify(_history));
+		_history = JSON.parse(JSON.stringify(history));
 
 		const responseMessageIds: Record<PropertyKey, string> = {};
 		// If modelId is provided, use it, else use selected model
@@ -1348,41 +1360,49 @@
 			const model = $models.filter((m) => m.id === modelId).at(0);
 
 			if (model) {
-				let responseMessageId = uuidv4();
-				let responseMessage = {
-					parentId: parentId,
-					id: responseMessageId,
-					childrenIds: [],
-					role: 'assistant',
-					content: '',
-					model: model.id,
-					modelName: model.name ?? model.id,
-					modelIdx: modelIdx ? modelIdx : _modelIdx,
-					userContext: null,
-					timestamp: Math.floor(Date.now() / 1000) // Unix epoch
-				};
+			let responseMessageId = uuidv4();
+			let responseMessage = {
+				parentId: parentId,
+				id: responseMessageId,
+				childrenIds: [],
+				role: 'assistant',
+				content: '',
+				model: model.id,
+				modelName: model.name ?? model.id,
+				modelIdx: modelIdx ? modelIdx : _modelIdx,
+				userContext: null,
+				timestamp: Math.floor(Date.now() / 1000) // Unix epoch
+			};
 
-				// Add message to history and Set currentId to messageId
-				history.messages[responseMessageId] = responseMessage;
-				history.currentId = responseMessageId;
+			// Add message to history and Set currentId to messageId
+			history.messages[responseMessageId] = responseMessage;
+			history.currentId = responseMessageId;
 
-				// Append messageId to childrenIds of parent message
-				if (parentId !== null && history.messages[parentId]) {
-					// Add null check before accessing childrenIds
-					history.messages[parentId].childrenIds = [
-						...history.messages[parentId].childrenIds,
-						responseMessageId
-					];
-				}
-
-				responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`] = responseMessageId;
+			// Append messageId to childrenIds of parent message
+			if (parentId !== null && history.messages[parentId]) {
+				// Add null check before accessing childrenIds
+				history.messages[parentId].childrenIds = [
+					...history.messages[parentId].childrenIds,
+					responseMessageId
+				];
 			}
+
+			responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`] = responseMessageId;
+		}
 		}
 		history = history;
 
 		// Create new chat if newChat is true and first user message
 		if (newChat && _history.messages[_history.currentId].parentId === null) {
 			_chatId = await initChatHandler(_history);
+			// Track message sent event after we have the chat ID from initChatHandler
+			// Use the newly created chat ID (_chatId) rather than $chatId which may still be 'local'
+			trackMessageSent(
+				_chatId,
+				parentId,
+				prompt,
+				selectedModelIds
+			);
 		}
 
 		await tick();
@@ -1610,14 +1630,6 @@
 								tags_generation: $settings?.autoTags ?? true
 							}
 						}
-					: {}),
-
-				...(stream && (model.info?.meta?.capabilities?.usage ?? false)
-					? {
-							stream_options: {
-								include_usage: true
-							}
-						}
 					: {})
 			},
 			`${WEBUI_BASE_URL}/api`
@@ -1841,9 +1853,15 @@
 			currentChatPage.set(1);
 
 			window.history.replaceState(history.state, '', `/c/${_chatId}`);
+			if ($chatId && $chatId !== 'local') {
+				trackConversationStarted(_chatId, selectedModels);
+			}
 		} else {
-			_chatId = 'local';
-			await chatId.set('local');
+			_chatId = 'temporary chat';
+			await chatId.set(_chatId);
+			if ($chatId && $chatId !== 'local') {
+				trackConversationStarted('temporary chat', selectedModels);
+			}
 		}
 		await tick();
 

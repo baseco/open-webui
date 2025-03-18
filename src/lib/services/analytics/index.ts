@@ -78,5 +78,71 @@ export function trackUserLoggedOut(userId: string): void {
 }
 
 /**
+ * Track conversation started
+ * @param conversationId Conversation ID
+ * @param modelIds List of model IDs used in the conversation
+ */
+export function trackConversationStarted(
+  conversationId: string,
+  modelIds: string[],
+): void {
+  if (!conversationId) {
+    console.warn('Cannot track conversation start: Missing conversation ID');
+    return;
+  }
+  
+  if (!modelIds || modelIds.length === 0) {
+    console.warn('Cannot track conversation start: Missing model IDs');
+    return;
+  }
+  
+  // Track conversation started event
+  ampli.conversationStarted({
+    conversationId,
+    isMultiModel: modelIds.length > 1 ? 'true' : 'false',
+    modelIdList: modelIds,
+    primaryModelId: modelIds[0]
+  });
+}
+
+/**
+ * Track message sent
+ * @param conversationId Conversation ID
+ * @param messageId Message ID
+ * @param messageContent Message content
+ * @param modelIds List of model IDs used for the message
+ */
+export function trackMessageSent(
+  conversationId: string,
+  messageId: string,
+  messageContent: string,
+  modelIds?: string[]
+): void {
+  if (!conversationId) {
+    console.warn('Cannot track message sent: Missing conversation ID');
+    return;
+  }
+  
+  if (!messageId) {
+    console.warn('Cannot track message sent: Missing message ID');
+    return;
+  }
+  
+  // Ensure modelIds is at least an empty array
+  const models = modelIds && modelIds.length > 0 ? modelIds : [];
+  
+  // Track message sent event
+  ampli.messageSent({
+    conversationId,
+    messageId,
+    messageLength: messageContent ? messageContent.length : 0,
+    isMultiModel: models.length > 1 ? 'true' : 'false',
+    // TS requires at least one string in the array as [string, ...string[]]
+    modelIdList: models.length > 0 ? models as [string, ...string[]] : ['unknown'],
+    primaryModelId: models.length > 0 ? models[0] : 'unknown'
+  });
+}
+
+/**
  * Add any new analytics tracking methods below...
  */
