@@ -50,6 +50,8 @@
 		getPromptVariables
 	} from '$lib/utils';
 
+	import { trackConversationStarted, trackMessageSent } from '$lib/services/analytics';
+
 	import { generateChatCompletion } from '$lib/apis/ollama';
 	import {
 		addTagById,
@@ -1317,6 +1319,16 @@
 			history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
 		}
 
+		// Track message sent event
+		if ($chatId && $chatId !== 'local') {
+			trackMessageSent(
+				$chatId,
+				userMessageId,
+				userPrompt,
+				selectedModels
+			);
+		}
+
 		// focus on chat input
 		const chatInput = document.getElementById('chat-input');
 		chatInput?.focus();
@@ -1383,6 +1395,14 @@
 		// Create new chat if newChat is true and first user message
 		if (newChat && _history.messages[_history.currentId].parentId === null) {
 			_chatId = await initChatHandler(_history);
+			// Track message sent event after we have the chat ID from initChatHandler
+			// Use the newly created chat ID (_chatId) rather than $chatId which may still be 'local'
+			trackMessageSent(
+				_chatId,
+				parentId,
+				prompt,
+				selectedModelIds
+			);
 		}
 
 		await tick();
@@ -1841,9 +1861,13 @@
 			currentChatPage.set(1);
 
 			window.history.replaceState(history.state, '', `/c/${_chatId}`);
+			if ($chatId && $chatId !== 'local') {
+				trackConversationStarted(_chatId, selectedModels);
+			}
 		} else {
 			_chatId = 'local';
 			await chatId.set('local');
+			trackConversationStarted('temporary chat', selectedModels);
 		}
 		await tick();
 

@@ -7,6 +7,7 @@
 
 	import { getBackendConfig } from '$lib/apis';
 	import { ldapUserSignIn, getSessionUser, userSignIn, userSignUp } from '$lib/apis/auths';
+	import { trackUserRegisteredWithAuth0, trackUserLoggedInWithAuth0 } from '$lib/services/analytics';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
@@ -47,6 +48,18 @@
 			$socket.emit('user-join', { auth: { token: sessionUser.token } });
 			await user.set(sessionUser);
 			await config.set(await getBackendConfig());
+
+			// Track auth event based on the source
+			const isAuth0Login = $page.url.search.includes('token') || $page.url.hash.includes('token');
+			
+			if (isAuth0Login) {
+				// User logged in or registered with Auth0
+				if (sessionUser.is_new_user) {
+					trackUserRegisteredWithAuth0(sessionUser.id);
+				} else {
+					trackUserLoggedInWithAuth0(sessionUser.id);
+				}
+			}
 
 			const redirectPath = querystringValue('redirect') || '/';
 			goto(redirectPath);
