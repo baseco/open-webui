@@ -1630,6 +1630,14 @@
 								tags_generation: $settings?.autoTags ?? true
 							}
 						}
+					: {}),
+
+				...(stream && (model.info?.meta?.capabilities?.usage ?? false)
+					? {
+							stream_options: {
+								include_usage: true
+							}
+						}
 					: {})
 			},
 			`${WEBUI_BASE_URL}/api`
@@ -1859,9 +1867,7 @@
 		} else {
 			_chatId = 'temporary chat';
 			await chatId.set(_chatId);
-			if ($chatId && $chatId !== 'local') {
-				trackConversationStarted('temporary chat', selectedModels);
-			}
+			trackConversationStarted('temporary chat', selectedModels);
 		}
 		await tick();
 
