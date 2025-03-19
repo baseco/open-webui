@@ -1379,7 +1379,7 @@
 				history.currentId = responseMessageId;
 
 				// Append messageId to childrenIds of parent message
-				if (parentId !== null && _history.messages[parentId]) {
+				if (parentId !== null && history.messages[parentId]) {
 					// Add null check before accessing childrenIds
 					history.messages[parentId].childrenIds = [
 						...history.messages[parentId].childrenIds,
@@ -1865,8 +1865,8 @@
 				trackConversationStarted(_chatId, selectedModels);
 			}
 		} else {
-			_chatId = 'temporary chat';
-			await chatId.set(_chatId);
+			_chatId = 'local';
+			await chatId.set('local');
 			trackConversationStarted('temporary chat', selectedModels);
 		}
 		await tick();
