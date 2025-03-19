@@ -1380,11 +1380,11 @@
 
 				// Append messageId to childrenIds of parent message
 				if (parentId !== null && history.messages[parentId]) {
-				// Add null check before accessing childrenIds
-				history.messages[parentId].childrenIds = [
-					...history.messages[parentId].childrenIds,
-					responseMessageId
-				];
+					// Add null check before accessing childrenIds
+					history.messages[parentId].childrenIds = [
+						...history.messages[parentId].childrenIds,
+						responseMessageId
+					];
 			}
 
 			responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`] = responseMessageId;
