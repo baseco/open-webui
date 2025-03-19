@@ -47,6 +47,11 @@
 		}
 
 		tools = $_tools.reduce((a, tool, i, arr) => {
+			// Skip the code interpreter tool
+			if (tool.id === 'code_interpreter') {
+				return a;
+			}
+			
 			a[tool.id] = {
 				name: tool.name,
 				description: tool.meta.description,
