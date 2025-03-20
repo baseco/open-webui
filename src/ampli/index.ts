@@ -8,7 +8,7 @@
  * To update run 'ampli pull web'
  *
  * Required dependencies: @amplitude/analytics-browser@^1.3.0
- * Tracking Plan Version: 1
+ * Tracking Plan Version: 2
  * Build: 1.0.0
  * Runtime: browser:typescript-ampli-v2
  *
@@ -19,10 +19,11 @@
 
 import * as amplitude from '@amplitude/analytics-browser';
 
-export type Environment = 'nexus';
+export type Environment = 'nexusdev' | 'nexusprod';
 
 export const ApiKey: Record<Environment, string> = {
-  nexus: '4eb2325d2ac16bee4a9e031788ac0066'
+  nexusdev: '12278c72dfe8e5f1bfae4185d73e8fb3',
+  nexusprod: '5d43a2af12c590c011d0225b19570256'
 };
 
 /**
@@ -30,10 +31,10 @@ export const ApiKey: Record<Environment, string> = {
  */
 export const DefaultConfiguration: BrowserOptions = {
   plan: {
-    version: '1',
+    version: '2',
     branch: 'main',
     source: 'web',
-    versionId: '999cb79c-590e-4ee0-8e39-d5070524c9dd'
+    versionId: 'c443d176-e507-4c35-8617-66c1140ba276'
   },
   ...{
     ingestionMetadata: {
@@ -60,14 +61,6 @@ export interface ConversationStartedProperties {
   conversationId: string;
   isMultiModel: string;
   /**
-   * misspelled, do not use
-   *
-   * | Rule | Value |
-   * |---|---|
-   * | Item Type | string |
-   */
-  modeIdList?: string[];
-  /**
    * | Rule | Value |
    * |---|---|
    * | Item Type | string |
@@ -90,6 +83,7 @@ export interface MessageSentProperties {
    * | Rule | Value |
    * |---|---|
    * | Min Items | 1 |
+   * | Unique Items | null |
    * | Item Type | string |
    *
    * @minItems 1
