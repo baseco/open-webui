@@ -3,7 +3,7 @@ import uuid
 import time
 import datetime
 import logging
-from open_webui.internal.db import get_db
+from open_webui.internal.db import get_db, SessionLocal
 from open_webui.models.users import User, UserModel
 from aiohttp import ClientSession
 
@@ -20,8 +20,6 @@ from open_webui.models.auths import (
     UpdateProfileForm,
     UserResponse,
 )
-from open_webui.models.users import Users
-
 from open_webui.constants import ERROR_MESSAGES, WEBHOOK_MESSAGES
 from open_webui.env import (
     WEBUI_AUTH,
@@ -43,16 +41,17 @@ from open_webui.config import (
     AUTH0_CLIENT_SECRET,
     AUTH0_DOMAIN,
     ENABLE_LDAP,
+    DEFAULT_USER_PERMISSIONS
 )
 from pydantic import BaseModel
 from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.auth import (
-    create_api_key,
     create_token,
     get_admin_user,
     get_verified_user,
     get_current_user,
     get_password_hash,
+    verify_password,
 )
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.access_control import get_permissions
@@ -137,7 +136,7 @@ async def update_profile(
     form_data: UpdateProfileForm, session_user=Depends(get_verified_user)
 ):
     if session_user:
-        user = Users.update_user_by_id(
+        user = User.update_user_by_id(
             session_user.id,
             {"profile_image_url": form_data.profile_image_url, "name": form_data.name},
         )
@@ -262,10 +261,10 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
             if not connection_user.bind():
                 raise HTTPException(400, f"Authentication failed for {form_data.user}")
 
-            user = Users.get_user_by_email(email)
+            user = User.get_user_by_email(email)
             if not user:
                 try:
-                    user_count = Users.get_num_users()
+                    user_count = User.get_num_users()
 
                     role = (
                         "admin"
@@ -337,7 +336,7 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
 ############################
 
 @router.get("/oauth/auth0/login")
-async def auth0_login(request: Request):
+async def auth0_login(request: Request, frontendOrigin: str = None, returnTo: str = None):
     """
     Redirect to Auth0 login page for authentication.
     The user will be presented with Auth0's Universal Login page where they can
@@ -351,6 +350,12 @@ async def auth0_login(request: Request):
     logger.info("Handling Auth0 login with correct callback URL")
     logger.info(f"Current environment AUTH0_CLIENT_ID: {os.environ.get('AUTH0_CLIENT_ID', 'None')}")
     logger.info(f"Current AUTH0_CLIENT_ID config value: {AUTH0_CLIENT_ID.value}")
+    logger.info(f"Received frontend origin: {frontendOrigin}")
+    logger.info(f"Received returnTo URL: {returnTo}")
+    
+    # Store the frontend origin and returnTo URL in the session for use during callback
+    request.session["frontend_origin"] = frontendOrigin
+    request.session["return_to"] = returnTo
     
     oauth_mgr = oauth_manager
     if oauth_mgr is None:
@@ -365,7 +370,8 @@ async def auth0_login(request: Request):
     client = oauth_mgr.get_client("auth0")
     return await client.authorize_redirect(
         request,
-        redirect_uri=callback_url
+        redirect_uri=callback_url,
+        prompt="login"  # Force Auth0 to show the login screen every time
     )
 
 
@@ -397,111 +403,263 @@ async def login_auth0(request: Request):
 
 
 @router.get("/oauth/auth0/callback")
-async def auth0_callback(request: Request, response: Response, code: str = None, state: str = None):
-    """ Auth0 callback endpoint """
-    import logging
-    import os
-    from open_webui.utils.oauth import oauth_manager, initialize_oauth_manager
+async def auth0_callback(
+    request: Request,
+    response: Response,
+    code: str = None,
+    state: str = None,
+    error: str = None,
+    error_description: str = None,
+):
+    """
+    Handle the callback from Auth0.
     
-    logger = logging.getLogger("open_webui.auths")
-    logger.info(f"Handling Auth0 callback with code: {code[:5] if code else None}... and state: {state[:5] if state else None}...")
+    This endpoint is called by Auth0 after the user has authenticated.
+    It will validate the state parameter and get the user profile from Auth0.
+    If successful, it will set a JWT token in a cookie and redirect to the frontend.
+    """
+    from loguru import logger
+    from urllib.parse import quote
+    from starlette.responses import RedirectResponse
+    from open_webui.utils.auth import get_password_hash, create_token
+    from open_webui.internal.db import SessionLocal
+    # Define JWT lifetime locally since we can't import it
+    JWT_LIFETIME_DAYS = 30  # Default to 30 days
+    # Using default value of True for enable_signup since we can't get it from the missing get_auth_config
+    enable_signup = True  # Default to allowing signups
     
+    # Check if we have error parameters from Auth0
+    if error or error_description:
+        logger.error(f"Auth0 returned an error: {error} - {error_description}")
+        
+        # Get frontend URL for redirect based on the frontend_origin in the session
+        frontend_origin = request.session.get("frontend_origin", "")
+        error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
+        
+        # Ensure error_url doesn't end with a slash before adding query parameters
+        if error_url.endswith('/'):
+            error_url = error_url[:-1]
+            
+        # Create an error message and redirect to the frontend
+        error_message = error_description or error or "An unknown error occurred during authentication"
+        encoded_error = quote(error_message)
+        
+        logger.error(f"Redirecting to error page with: {error_message}")
+        return RedirectResponse(url=f"{error_url}/auth?error={encoded_error}")
+
     try:
-        oauth_mgr = oauth_manager
-        if oauth_mgr is None:
-            logger.info("Initializing OAuth manager")
-            oauth_mgr = initialize_oauth_manager()
-            
-        # Get the user information from Auth0
-        result = await oauth_mgr.handle_callback(request, "auth0", response)
-
-        if not result:
-            log.error("No result returned from Auth0 callback")
-            return RedirectResponse(url=f"{request.base_url}/?error=No result from Auth0")
-
-        # Extract user data and token from the result
+        # Get the OAuth manager
+        from open_webui.utils.oauth import oauth_manager
+        
+        # Process the callback 
+        result = await oauth_manager.handle_callback(request, "auth0", response)
+        
+        # Check if there was an error in the callback
+        if result and result.get("error"):
+            logger.error(f"Redirecting to error page with: {result.get('redirect_url')}")
+            return RedirectResponse(url=result.get("redirect_url"))
+        
+        # Get the user data from the result
         user_data = result.get("user_data", {})
-        jwt_token = result.get("jwt_token", "")
-        frontend_base_url = result.get("frontend_base_url", "")
-
+        
         if not user_data:
-            log.error("No user data returned from Auth0 callback")
-            return RedirectResponse(url=f"{request.base_url}/?error=No user data from Auth0")
-
-        # Try to find existing user by email
-        log.info(f"Auth0 user data: {user_data}")
-        email = user_data.get("email", "").lower()
+            logger.error("No user data returned from Auth0")
+            frontend_url = result.get("frontend_base_url", "")
+            encoded_error = quote("Authentication failed: No user data returned from Auth0")
+            return RedirectResponse(url=f"{frontend_url}/auth?error={encoded_error}")
         
-        if not email:
-            log.error("No email in Auth0 user data")
-            return RedirectResponse(url=f"{request.base_url}/?error=No email in Auth0 profile")
+        logger.info(f"User data from Auth0: {user_data}")
         
-        # Use the correct method name: get_user_by_email instead of get_by_email
-        user = Users.get_user_by_email(email)
-        if not user:
-            if ENABLE_OAUTH_SIGNUP.value:
-                # Create new user
-                name = user_data.get("name", "") or user_data.get("nickname", "") or email.split("@")[0]
-                user = Users.create(
-                    email=email,
-                    name=name,
-                    profile_image_url=user_data.get("picture", ""),
-                    oauth_provider="auth0",
-                    oauth_user_id=user_data.get("sub", ""),
-                )
-                log.info(f"Created new user from Auth0: {email}")
+        # Extract user information from Auth0 user data
+        user_email = user_data.get("email")
+        user_id = user_data.get("sub")  # The Auth0 user ID
+        user_name = user_data.get("name")
+        user_picture = user_data.get("picture")
+        
+        # Try to get phone number if available
+        phone_number = None
+        if "phone_number" in user_data:
+            phone_number = user_data.get("phone_number")
+        
+        # If name is not provided, use email or phone number
+        if not user_name:
+            if user_email:
+                user_name = user_email
+            elif phone_number:
+                user_name = phone_number
             else:
-                log.error("OAuth signup is disabled")
-                return RedirectResponse(url=f"{request.base_url}/?error=OAuth signup is disabled")
+                # Last resort - create a name from user_id
+                provider = user_id.split('|')[0] if '|' in user_id else "unknown"
+                user_sub = user_id.split('|')[-1] if '|' in user_id else user_id
+                user_name = f"User_{provider}_{user_sub[:8]}"
         
-        # Generate a valid JWT token for the user
-        expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
-        jwt_token = create_token(
-            data={"id": user.id},
-            expires_delta=expires_delta,
-        )
-        
-        # Set cookie 
-        expires_at = None
-        if expires_delta:
-            expires_at = int(time.time()) + int(expires_delta.total_seconds())
-        
-        datetime_expires_at = (
-            datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
-            if expires_at
-            else None
-        )
-        
-        response.set_cookie(
-            key="token",
-            value=jwt_token,
-            expires=datetime_expires_at,
-            httponly=False,  # Allow JavaScript to access the cookie
-            samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
-            secure=WEBUI_AUTH_COOKIE_SECURE,
-        )
-        
-        # Use the frontend_base_url that was already calculated by the OAuth manager
-        frontend_url = frontend_base_url
-
-        # If for some reason we didn't get a frontend_base_url, use a simpler approach
-        if not frontend_url:
-            # For development environment, default to localhost:5173
-            if "localhost" in str(request.base_url) or "127.0.0.1" in str(request.base_url):
-                frontend_url = "http://localhost:5173"
+        # Ensure we have a valid email (required by the database schema)
+        if not user_email:
+            provider = user_id.split('|')[0] if '|' in user_id else "unknown"
+            if phone_number:
+                user_email = f"{phone_number}@auth0user.com"
             else:
-                # For production, use the base URL from the request
-                frontend_url = str(request.base_url).rstrip("/")
-
-        # Redirect to the frontend with token
-        redirect_url = f"{frontend_url}/auth?token={jwt_token}"
+                user_sub = user_id.split('|')[-1] if '|' in user_id else user_id
+                user_email = f"{provider}.{user_sub}@auth0user.com"
+            logger.info(f"Created default email {user_email} for user with ID {user_id}")
         
-        return RedirectResponse(url=redirect_url)
+        # Create or update user in the database
+        user = None
+        if user_id:
+            # First try to find user by oauth_sub which is the most reliable identifier
+            db = SessionLocal()
+            user = db.query(User).filter(User.oauth_sub == user_id).first()
+            db.close()
             
+        if user is None and user_email:
+            # If not found by oauth_sub, try email
+            db = SessionLocal()
+            user = db.query(User).filter(User.email == user_email).first()
+            db.close()
+            
+        if user is None and phone_number:
+            # If still not found, try phone number
+            db = SessionLocal()
+            users = db.query(User).all()
+            for u in users:
+                if hasattr(u, 'info') and u.info and isinstance(u.info, dict):
+                    if u.info.get('phone_number') == phone_number:
+                        user = u
+                        break
+            db.close()
+            
+        # If we couldn't find a user with any method and don't have enough info to create one
+        if user is None and not user_id and not user_email and not phone_number:
+            logger.error("No identifiable information found in Auth0 user data")
+            frontend_url = result.get("frontend_base_url", "")
+            encoded_error = quote("Authentication failed: No identifier provided by Auth0")
+            return RedirectResponse(url=f"{result.get('frontend_base_url', '')}/auth?error={encoded_error}")
+        
+        # Update or create user
+        db = SessionLocal()
+        try:
+            if user is None:
+                # User doesn't exist, create a new one
+                user_uuid = str(uuid.uuid4())
+                # Ensure we have a valid name 
+                if not user_name:
+                    if user_email:
+                        user_name = user_email
+                    elif phone_number:
+                        user_name = phone_number
+                    else:
+                        user_name = f"User_{user_id.split('|')[-1][:8]}"
+                
+                # Create the user with SQLAlchemy
+                new_user = User(
+                    id=user_uuid,
+                    name=user_name,
+                    email=user_email,
+                    role="pending",
+                    profile_image_url=user_picture if user_picture else "/user.png",
+                    last_active_at=int(time.time()),
+                    created_at=int(time.time()),
+                    updated_at=int(time.time()),
+                    oauth_sub=user_id
+                )
+                
+                # Add the user to the database
+                db.add(new_user)
+                db.commit()
+                db.refresh(new_user)
+                
+                # Use the utility to add default permissions for the user
+                try:
+                    from open_webui.utils.access_control import get_permissions
+                    from open_webui.config import DEFAULT_USER_PERMISSIONS
+                    # We don't need to do anything special here, as the get_permissions function
+                    # will automatically use the default permissions when the user first logs in
+                    logger.info(f"Default permissions for user {new_user.id} will be applied automatically")
+                except Exception as e:
+                    logger.error(f"Error setting default permissions: {str(e)}")
+                
+                user = new_user
+            else:
+                # User exists, update if needed
+                if user.oauth_sub != user_id:
+                    user.oauth_sub = user_id
+                if user_email and not user.email:
+                    user.email = user_email
+                if user_name and not user.name:
+                    user.name = user_name
+                if user_picture and not user.profile_image_url:
+                    user.profile_image_url = user_picture
+                
+                user.updated_at = int(time.time())
+                user.last_active_at = int(time.time())
+                db.commit()
+                
+            # Create JWT tokens
+            jwt_token = create_token(data={"id": str(user.id)})
+            refresh_token = create_token(data={"id": str(user.id)})
+            
+            # Update the user's permissions if needed
+            if hasattr(user, 'role') and user.role == "pending":
+                # Update role to "user" if it was pending
+                user.role = "user"
+                db.commit()
+            
+            # Prepare frontend URL with token in query params
+            frontend_url = result.get("frontend_base_url", "")
+            
+            # Ensure we have a proper redirect URL, remove any leading/trailing slashes
+            if frontend_url.endswith('/'):
+                frontend_url = frontend_url[:-1]
+                
+            redirect_url = f"{frontend_url}/auth?token={jwt_token}"
+            logger.info(f"Redirecting to {redirect_url}")
+            
+            # Prepare cookies for the response
+            response = RedirectResponse(url=redirect_url)
+            response.set_cookie(
+                "access_token",
+                jwt_token,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+                max_age=60 * 60 * 24 * 7,  # 7 days
+            )
+            response.set_cookie(
+                "refresh_token",
+                refresh_token,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+                max_age=60 * 60 * 24 * 30,  # 30 days
+            )
+            
+            return response
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error in Auth0 callback: {str(e)}")
+            logger.exception(e)
+            encoded_error = quote(f"Authentication failed: {str(e)}")
+            return RedirectResponse(url=f"{result.get('frontend_base_url', '')}/auth?error={encoded_error}")
+        finally:
+            db.close()
+        
     except Exception as e:
-        log.error(f"Error in Auth0 callback: {str(e)}")
-        log.exception(e)
-        return RedirectResponse(url=f"{request.base_url}/?error=Authentication error: {str(e)}")
+        # Log the error 
+        logger.error(f"Error in Auth0 callback: {str(e)}")
+        
+        # Get frontend URL for redirect based on the frontend_origin in the session
+        frontend_origin = request.session.get("frontend_origin", "")
+        error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
+        
+        # Ensure error_url doesn't end with a slash before adding query parameters
+        if error_url.endswith('/'):
+            error_url = error_url[:-1]
+            
+        # Create an error message and redirect to the frontend
+        encoded_error = quote(f"Authentication error: {str(e)}")
+        
+        logger.error(f"Redirecting to error page with: {str(e)}")
+        return RedirectResponse(url=f"{error_url}/auth?error={encoded_error}")
 
 
 ############################
@@ -521,7 +679,7 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
             trusted_name = request.headers.get(
                 WEBUI_AUTH_TRUSTED_NAME_HEADER, trusted_email
             )
-        if not Users.get_user_by_email(trusted_email.lower()):
+        if not User.get_user_by_email(trusted_email.lower()):
             await signup(
                 request,
                 response,
@@ -534,10 +692,10 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
         admin_email = "admin@localhost"
         admin_password = "admin"
 
-        if Users.get_user_by_email(admin_email.lower()):
+        if User.get_user_by_email(admin_email.lower()):
             user = Auths.authenticate_user(admin_email.lower(), admin_password)
         else:
-            if Users.get_num_users() != 0:
+            if User.get_num_users() != 0:
                 raise HTTPException(400, detail=ERROR_MESSAGES.EXISTING_USERS)
 
             await signup(
@@ -616,18 +774,18 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
                 status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
             )
     else:
-        if Users.get_num_users() != 0:
+        if User.get_num_users() != 0:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
             )
 
-    user_count = Users.get_num_users()
+    user_count = User.get_num_users()
     if not validate_email_format(form_data.email.lower()):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
         )
 
-    if Users.get_user_by_email(form_data.email.lower()):
+    if User.get_user_by_email(form_data.email.lower()):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
     try:
@@ -752,7 +910,7 @@ async def add_user(form_data: AddUserForm, user=Depends(get_admin_user)):
             status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
         )
 
-    if Users.get_user_by_email(form_data.email.lower()):
+    if User.get_user_by_email(form_data.email.lower()):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
     try:
@@ -796,11 +954,11 @@ async def get_admin_details(request: Request, user=Depends(get_current_user)):
         log.info(f"Admin details - Email: {admin_email}, Name: {admin_name}")
 
         if admin_email:
-            admin = Users.get_user_by_email(admin_email)
+            admin = User.get_user_by_email(admin_email)
             if admin:
                 admin_name = admin.name
         else:
-            admin = Users.get_first_user()
+            admin = User.get_first_user()
             if admin:
                 admin_email = admin.email
                 admin_name = admin.name
@@ -1015,7 +1173,7 @@ async def generate_api_key(request: Request, user=Depends(get_current_user)):
         )
 
     api_key = create_api_key()
-    success = Users.update_user_api_key_by_id(user.id, api_key)
+    success = User.update_user_api_key_by_id(user.id, api_key)
 
     if success:
         return {
@@ -1028,14 +1186,14 @@ async def generate_api_key(request: Request, user=Depends(get_current_user)):
 # delete api key
 @router.delete("/api_key", response_model=bool)
 async def delete_api_key(user=Depends(get_current_user)):
-    success = Users.update_user_api_key_by_id(user.id, None)
+    success = User.update_user_api_key_by_id(user.id, None)
     return success
 
 
 # get api key
 @router.get("/api_key", response_model=ApiKey)
 async def get_api_key(user=Depends(get_current_user)):
-    api_key = Users.get_user_api_key_by_id(user.id)
+    api_key = User.get_user_api_key_by_id(user.id)
     if api_key:
         return {
             "api_key": api_key,

@@ -4,12 +4,14 @@
 
 	import { flyAndScale } from '$lib/utils/transitions';
 	import { goto } from '$app/navigation';
-	import ArchiveBox from '$lib/components/icons/ArchiveBox.svelte';
+	import { page } from '$app/stores';
 	import { showSettings, activeUserIds, USAGE_POOL, mobile, showSidebar, user } from '$lib/stores';
 	import { fade, slide } from 'svelte/transition';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { userSignOut } from '$lib/apis/auths';
 	import { trackUserLoggedOut } from '$lib/services/analytics';
+	import { logout as auth0Logout } from '$lib/services/auth0';
+	import ArchiveBox from '$lib/components/icons/ArchiveBox.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -164,12 +166,20 @@
 						trackUserLoggedOut($user.id);
 					}
 					
-					await userSignOut();
-					user.set(null);
-
+					// Clear local application state
+					user.set(undefined); 
 					localStorage.removeItem('token');
-					location.href = '/auth';
-
+					
+					// Attempt to sign out from the backend as well
+					try {
+						await userSignOut();
+					} catch (error) {
+						console.error('Error during backend signout:', error);
+					}
+					
+					// Use Auth0 SDK to logout properly
+					await auth0Logout();
+					
 					show = false;
 				}}
 			>
