@@ -4,7 +4,7 @@ import time
 import datetime
 import logging
 from open_webui.internal.db import get_db, SessionLocal
-from open_webui.models.users import User, UserModel
+from open_webui.models.users import User, UserModel, Users
 from aiohttp import ClientSession
 
 from open_webui.models.auths import (
@@ -136,7 +136,7 @@ async def update_profile(
     form_data: UpdateProfileForm, session_user=Depends(get_verified_user)
 ):
     if session_user:
-        user = User.update_user_by_id(
+        user = Users.update_user_by_id(
             session_user.id,
             {"profile_image_url": form_data.profile_image_url, "name": form_data.name},
         )
@@ -261,10 +261,10 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
             if not connection_user.bind():
                 raise HTTPException(400, f"Authentication failed for {form_data.user}")
 
-            user = User.get_user_by_email(email)
+            user = Users.get_user_by_email(email)
             if not user:
                 try:
-                    user_count = User.get_num_users()
+                    user_count = Users.get_num_users()
 
                     role = (
                         "admin"
@@ -679,7 +679,7 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
             trusted_name = request.headers.get(
                 WEBUI_AUTH_TRUSTED_NAME_HEADER, trusted_email
             )
-        if not User.get_user_by_email(trusted_email.lower()):
+        if not Users.get_user_by_email(trusted_email.lower()):
             await signup(
                 request,
                 response,
@@ -692,10 +692,10 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
         admin_email = "admin@localhost"
         admin_password = "admin"
 
-        if User.get_user_by_email(admin_email.lower()):
+        if Users.get_user_by_email(admin_email.lower()):
             user = Auths.authenticate_user(admin_email.lower(), admin_password)
         else:
-            if User.get_num_users() != 0:
+            if Users.get_num_users() != 0:
                 raise HTTPException(400, detail=ERROR_MESSAGES.EXISTING_USERS)
 
             await signup(
@@ -774,18 +774,18 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
                 status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
             )
     else:
-        if User.get_num_users() != 0:
+        if Users.get_num_users() != 0:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
             )
 
-    user_count = User.get_num_users()
+    user_count = Users.get_num_users()
     if not validate_email_format(form_data.email.lower()):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
         )
 
-    if User.get_user_by_email(form_data.email.lower()):
+    if Users.get_user_by_email(form_data.email.lower()):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
     try:
@@ -910,7 +910,7 @@ async def add_user(form_data: AddUserForm, user=Depends(get_admin_user)):
             status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
         )
 
-    if User.get_user_by_email(form_data.email.lower()):
+    if Users.get_user_by_email(form_data.email.lower()):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
     try:
@@ -954,11 +954,11 @@ async def get_admin_details(request: Request, user=Depends(get_current_user)):
         log.info(f"Admin details - Email: {admin_email}, Name: {admin_name}")
 
         if admin_email:
-            admin = User.get_user_by_email(admin_email)
+            admin = Users.get_user_by_email(admin_email)
             if admin:
                 admin_name = admin.name
         else:
-            admin = User.get_first_user()
+            admin = Users.get_first_user()
             if admin:
                 admin_email = admin.email
                 admin_name = admin.name
@@ -1173,7 +1173,7 @@ async def generate_api_key(request: Request, user=Depends(get_current_user)):
         )
 
     api_key = create_api_key()
-    success = User.update_user_api_key_by_id(user.id, api_key)
+    success = Users.update_user_api_key_by_id(user.id, api_key)
 
     if success:
         return {
@@ -1186,14 +1186,14 @@ async def generate_api_key(request: Request, user=Depends(get_current_user)):
 # delete api key
 @router.delete("/api_key", response_model=bool)
 async def delete_api_key(user=Depends(get_current_user)):
-    success = User.update_user_api_key_by_id(user.id, None)
+    success = Users.update_user_api_key_by_id(user.id, None)
     return success
 
 
 # get api key
 @router.get("/api_key", response_model=ApiKey)
 async def get_api_key(user=Depends(get_current_user)):
-    api_key = User.get_user_api_key_by_id(user.id)
+    api_key = Users.get_user_api_key_by_id(user.id)
     if api_key:
         return {
             "api_key": api_key,
