@@ -3,7 +3,7 @@ import uuid
 import time
 import datetime
 import logging
-from open_webui.internal.db import get_db, SessionLocal
+from open_webui.internal.db import get_db
 from open_webui.models.users import User, UserModel, Users
 from aiohttp import ClientSession
 
@@ -46,12 +46,12 @@ from open_webui.config import (
 from pydantic import BaseModel
 from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.auth import (
+    create_api_key,
     create_token,
     get_admin_user,
     get_verified_user,
     get_current_user,
     get_password_hash,
-    verify_password,
 )
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.access_control import get_permissions
@@ -339,8 +339,6 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
 async def auth0_login(request: Request, frontendOrigin: str = None, returnTo: str = None):
     """
     Redirect to Auth0 login page for authentication.
-    The user will be presented with Auth0's Universal Login page where they can
-    authenticate using various methods (email/password, social logins, etc.).
     """
     import logging
     from open_webui.utils.oauth import oauth_manager, initialize_oauth_manager
@@ -411,13 +409,7 @@ async def auth0_callback(
     error: str = None,
     error_description: str = None,
 ):
-    """
-    Handle the callback from Auth0.
-    
-    This endpoint is called by Auth0 after the user has authenticated.
-    It will validate the state parameter and get the user profile from Auth0.
-    If successful, it will set a JWT token in a cookie and redirect to the frontend.
-    """
+    """ Auth0 callback endpoint """
     from loguru import logger
     from urllib.parse import quote
     from starlette.responses import RedirectResponse
