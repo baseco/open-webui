@@ -261,32 +261,6 @@
 					</div>
 				{:else}
 					<div class="  my-auto pb-10 w-full dark:text-gray-100">
-						<!-- Display authentication error if present -->
-						{#if authError}
-							<div class="bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 p-4 rounded-lg mb-4">
-								<div class="flex items-start">
-									<div class="flex-shrink-0">
-										<svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-											<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" />
-										</svg>
-									</div>
-									<div class="ml-3">
-										<h3 class="text-sm font-medium text-red-800 dark:text-red-300">
-											Authentication Failed
-										</h3>
-										<div class="mt-2 text-sm text-red-700 dark:text-red-300">
-											<p>{authError}</p>
-										</div>
-										<div class="mt-4">
-											<a href="/auth" class="text-sm font-medium text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300">
-												Try again with a different account
-											</a>
-										</div>
-									</div>
-								</div>
-							</div>
-						{/if}
-						
 						<form
 							class=" flex flex-col justify-center"
 							on:submit={(e) => {
