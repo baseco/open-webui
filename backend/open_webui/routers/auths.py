@@ -400,6 +400,258 @@ async def login_auth0(request: Request):
         )
 
 
+# Helper functions for Auth0 callback
+def handle_auth0_error(request, error, error_description):
+    """Handle errors returned from Auth0"""
+    from loguru import logger
+    from urllib.parse import quote
+    from starlette.responses import RedirectResponse
+    
+    logger.error(f"Auth0 returned an error: {error} - {error_description}")
+    
+    # Get frontend URL for redirect based on the frontend_origin in the session
+    frontend_origin = request.session.get("frontend_origin", "")
+    error_url = frontend_origin or f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
+    
+    # Ensure error_url doesn't end with a slash before adding query parameters
+    if error_url.endswith('/'):
+        error_url = error_url[:-1]
+        
+    # Create an error message and redirect to the frontend
+    error_message = error_description or error or "An unknown error occurred during authentication"
+    encoded_error = quote(error_message)
+    
+    logger.error(f"Redirecting to error page with: {error_message}")
+    return RedirectResponse(url=f"{error_url}/auth?error={encoded_error}")
+
+def get_frontend_url(request, result_data=None):
+    """Standardize frontend URL construction"""
+    # First try to get from result_data if provided
+    if result_data and "frontend_base_url" in result_data:
+        frontend_url = result_data.get("frontend_base_url", "")
+        if frontend_url:
+            # Ensure no trailing slash
+            if frontend_url.endswith('/'):
+                frontend_url = frontend_url[:-1]
+            return frontend_url
+    
+    # Fall back to session or default construction
+    frontend_origin = request.session.get("frontend_origin", "")
+    if frontend_origin:
+        if frontend_origin.endswith('/'):
+            frontend_origin = frontend_origin[:-1]
+        return frontend_origin
+    
+    # Last resort - construct from request base URL
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
+    if base_url.endswith('/'):
+        base_url = base_url[:-1]
+    
+    return base_url
+
+def extract_user_info(user_data):
+    """Extract and normalize user information from Auth0 user data"""
+    from loguru import logger
+    
+    user_info = {
+        'email': user_data.get("email"),
+        'id': user_data.get("sub"),  # The Auth0 user ID
+        'name': user_data.get("name"),
+        'picture': user_data.get("picture"),
+        'phone_number': user_data.get("phone_number") if "phone_number" in user_data else None
+    }
+    
+    # If name is not provided, use email or phone number
+    if not user_info['name']:
+        if user_info['email']:
+            user_info['name'] = user_info['email']
+        elif user_info['phone_number']:
+            user_info['name'] = user_info['phone_number']
+        else:
+            # Last resort - create a name from user_id
+            provider = user_info['id'].split('|')[0] if '|' in user_info['id'] else "unknown"
+            user_sub = user_info['id'].split('|')[-1] if '|' in user_info['id'] else user_info['id']
+            user_info['name'] = f"User_{provider}_{user_sub[:8]}"
+    
+    # Ensure we have a valid email (required by the database schema)
+    if not user_info['email']:
+        provider = user_info['id'].split('|')[0] if '|' in user_info['id'] else "unknown"
+        if user_info['phone_number']:
+            user_info['email'] = f"{user_info['phone_number']}@auth0user.com"
+        else:
+            user_sub = user_info['id'].split('|')[-1] if '|' in user_info['id'] else user_info['id']
+            user_info['email'] = f"{provider}.{user_sub}@auth0user.com"
+        logger.info(f"Created default email {user_info['email']} for user with ID {user_info['id']}")
+    
+    return user_info
+
+def find_user_by_identifiers(db, user_info):
+    """Find a user by OAuth ID, email, or phone number"""
+    user = None
+    
+    # First try to find user by oauth_sub which is the most reliable identifier
+    if user_info['id']:
+        user = db.query(User).filter(User.oauth_sub == user_info['id']).first()
+        
+    # If not found by oauth_sub, try email
+    if user is None and user_info['email']:
+        user = db.query(User).filter(User.email == user_info['email']).first()
+        
+    # If still not found, try phone number
+    if user is None and user_info['phone_number']:
+        users = db.query(User).all()
+        for u in users:
+            if hasattr(u, 'info') and u.info and isinstance(u.info, dict):
+                if u.info.get('phone_number') == user_info['phone_number']:
+                    user = u
+                    break
+    
+    return user
+
+def has_sufficient_user_info(user_info):
+    """Check if we have enough info to identify or create a user"""
+    return bool(user_info['id'] or user_info['email'] or user_info['phone_number'])
+
+def create_or_update_user(db, user, user_info):
+    """Create a new user or update an existing one based on Auth0 data"""
+    from loguru import logger
+    import uuid
+    import time
+    
+    if user is None:
+        # User doesn't exist, create a new one
+        user_uuid = str(uuid.uuid4())
+        
+        # Create the user with SQLAlchemy
+        new_user = User(
+            id=user_uuid,
+            name=user_info['name'],
+            email=user_info['email'],
+            role="pending",
+            profile_image_url=user_info['picture'] if user_info['picture'] else "/user.png",
+            last_active_at=int(time.time()),
+            created_at=int(time.time()),
+            updated_at=int(time.time()),
+            oauth_sub=user_info['id']
+        )
+        
+        # Add the user to the database
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        # Use the utility to add default permissions for the user
+        try:
+            from open_webui.utils.access_control import get_permissions
+            from open_webui.config import DEFAULT_USER_PERMISSIONS
+            # We don't need to do anything special here, as the get_permissions function
+            # will automatically use the default permissions when the user first logs in
+            logger.info(f"Default permissions for user {new_user.id} will be applied automatically")
+        except Exception as e:
+            logger.error(f"Error setting default permissions: {str(e)}")
+        
+        user = new_user
+    else:
+        # User exists, update if needed
+        if user.oauth_sub != user_info['id']:
+            user.oauth_sub = user_info['id']
+        if user_info['email'] and not user.email:
+            user.email = user_info['email']
+        if user_info['name'] and not user.name:
+            user.name = user_info['name']
+        if user_info['picture'] and not user.profile_image_url:
+            user.profile_image_url = user_info['picture']
+        
+        user.updated_at = int(time.time())
+        user.last_active_at = int(time.time())
+        
+        # Update role if needed
+        if hasattr(user, 'role') and user.role == "pending":
+            # Update role to "user" if it was pending
+            user.role = "user"
+            
+        db.commit()
+    
+    return user
+
+def generate_auth_tokens(user):
+    """Generate JWT tokens for authentication"""
+    from open_webui.utils.auth import create_token
+    
+    return {
+        'access_token': create_token(data={"id": str(user.id)}),
+        'refresh_token': create_token(data={"id": str(user.id)})
+    }
+
+def prepare_auth_response(frontend_url, tokens):
+    """Prepare the redirect response with authentication cookies"""
+    from loguru import logger
+    from starlette.responses import RedirectResponse
+    
+    # Prepare frontend URL with token in query params
+    redirect_url = f"{frontend_url}/auth?token={tokens['access_token']}"
+    logger.info(f"Redirecting to {redirect_url}")
+    
+    # Prepare cookies for the response
+    response = RedirectResponse(url=redirect_url)
+    response.set_cookie(
+        "access_token",
+        tokens['access_token'],
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,  # 7 days
+    )
+    response.set_cookie(
+        "refresh_token",
+        tokens['refresh_token'],
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,  # 30 days
+    )
+    
+    return response
+
+def handle_missing_user_data(frontend_url):
+    """Handle the case when no user data is returned from Auth0"""
+    from loguru import logger
+    from urllib.parse import quote
+    from starlette.responses import RedirectResponse
+    
+    logger.error("No user data returned from Auth0")
+    encoded_error = quote("Authentication failed: No user data returned from Auth0")
+    return RedirectResponse(url=f"{frontend_url}/auth?error={encoded_error}")
+
+def handle_insufficient_user_info(frontend_url):
+    """Handle the case when insufficient user info is provided"""
+    from loguru import logger
+    from urllib.parse import quote
+    from starlette.responses import RedirectResponse
+    
+    logger.error("No identifiable information found in Auth0 user data")
+    encoded_error = quote("Authentication failed: No identifier provided by Auth0")
+    return RedirectResponse(url=f"{frontend_url}/auth?error={encoded_error}")
+
+def handle_general_exception(request, exception):
+    """Handle general exceptions in the Auth0 callback process"""
+    from loguru import logger
+    from urllib.parse import quote
+    from starlette.responses import RedirectResponse
+    
+    # Log the error
+    logger.error(f"Error in Auth0 callback: {str(exception)}")
+    logger.exception(exception)
+    
+    # Get frontend URL
+    frontend_url = get_frontend_url(request)
+    
+    # Create an error message and redirect to the frontend
+    encoded_error = quote(f"Authentication error: {str(exception)}")
+    
+    logger.error(f"Redirecting to error page with: {str(exception)}")
+    return RedirectResponse(url=f"{frontend_url}/auth?error={encoded_error}")
+
 @router.get("/oauth/auth0/callback")
 async def auth0_callback(
     request: Request,
@@ -415,30 +667,11 @@ async def auth0_callback(
     from starlette.responses import RedirectResponse
     from open_webui.utils.auth import get_password_hash, create_token
     from open_webui.internal.db import SessionLocal
-    # Define JWT lifetime locally since we can't import it
-    JWT_LIFETIME_DAYS = 30  # Default to 30 days
-    # Using default value of True for enable_signup since we can't get it from the missing get_auth_config
-    enable_signup = True  # Default to allowing signups
     
     # Check if we have error parameters from Auth0
     if error or error_description:
-        logger.error(f"Auth0 returned an error: {error} - {error_description}")
-        
-        # Get frontend URL for redirect based on the frontend_origin in the session
-        frontend_origin = request.session.get("frontend_origin", "")
-        error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
-        
-        # Ensure error_url doesn't end with a slash before adding query parameters
-        if error_url.endswith('/'):
-            error_url = error_url[:-1]
-            
-        # Create an error message and redirect to the frontend
-        error_message = error_description or error or "An unknown error occurred during authentication"
-        encoded_error = quote(error_message)
-        
-        logger.error(f"Redirecting to error page with: {error_message}")
-        return RedirectResponse(url=f"{error_url}/auth?error={encoded_error}")
-
+        return handle_auth0_error(request, error, error_description)
+    
     try:
         # Get the OAuth manager
         from open_webui.utils.oauth import oauth_manager
@@ -451,207 +684,48 @@ async def auth0_callback(
             logger.error(f"Redirecting to error page with: {result.get('redirect_url')}")
             return RedirectResponse(url=result.get("redirect_url"))
         
-        # Get the user data from the result
+        # Get user data from the result
         user_data = result.get("user_data", {})
         
+        # Get frontend URL
+        frontend_url = get_frontend_url(request, result)
+        
         if not user_data:
-            logger.error("No user data returned from Auth0")
-            frontend_url = result.get("frontend_base_url", "")
-            encoded_error = quote("Authentication failed: No user data returned from Auth0")
-            return RedirectResponse(url=f"{frontend_url}/auth?error={encoded_error}")
+            return handle_missing_user_data(frontend_url)
         
-        logger.info(f"User data from Auth0: {user_data}")
+        # Extract and normalize user information
+        user_info = extract_user_info(user_data)
         
-        # Extract user information from Auth0 user data
-        user_email = user_data.get("email")
-        user_id = user_data.get("sub")  # The Auth0 user ID
-        user_name = user_data.get("name")
-        user_picture = user_data.get("picture")
-        
-        # Try to get phone number if available
-        phone_number = None
-        if "phone_number" in user_data:
-            phone_number = user_data.get("phone_number")
-        
-        # If name is not provided, use email or phone number
-        if not user_name:
-            if user_email:
-                user_name = user_email
-            elif phone_number:
-                user_name = phone_number
-            else:
-                # Last resort - create a name from user_id
-                provider = user_id.split('|')[0] if '|' in user_id else "unknown"
-                user_sub = user_id.split('|')[-1] if '|' in user_id else user_id
-                user_name = f"User_{provider}_{user_sub[:8]}"
-        
-        # Ensure we have a valid email (required by the database schema)
-        if not user_email:
-            provider = user_id.split('|')[0] if '|' in user_id else "unknown"
-            if phone_number:
-                user_email = f"{phone_number}@auth0user.com"
-            else:
-                user_sub = user_id.split('|')[-1] if '|' in user_id else user_id
-                user_email = f"{provider}.{user_sub}@auth0user.com"
-            logger.info(f"Created default email {user_email} for user with ID {user_id}")
-        
-        # Create or update user in the database
-        user = None
-        if user_id:
-            # First try to find user by oauth_sub which is the most reliable identifier
-            db = SessionLocal()
-            user = db.query(User).filter(User.oauth_sub == user_id).first()
-            db.close()
-            
-        if user is None and user_email:
-            # If not found by oauth_sub, try email
-            db = SessionLocal()
-            user = db.query(User).filter(User.email == user_email).first()
-            db.close()
-            
-        if user is None and phone_number:
-            # If still not found, try phone number
-            db = SessionLocal()
-            users = db.query(User).all()
-            for u in users:
-                if hasattr(u, 'info') and u.info and isinstance(u.info, dict):
-                    if u.info.get('phone_number') == phone_number:
-                        user = u
-                        break
-            db.close()
-            
-        # If we couldn't find a user with any method and don't have enough info to create one
-        if user is None and not user_id and not user_email and not phone_number:
-            logger.error("No identifiable information found in Auth0 user data")
-            frontend_url = result.get("frontend_base_url", "")
-            encoded_error = quote("Authentication failed: No identifier provided by Auth0")
-            return RedirectResponse(url=f"{result.get('frontend_base_url', '')}/auth?error={encoded_error}")
-        
-        # Update or create user
+        # Database operations in a single session
         db = SessionLocal()
         try:
-            if user is None:
-                # User doesn't exist, create a new one
-                user_uuid = str(uuid.uuid4())
-                # Ensure we have a valid name 
-                if not user_name:
-                    if user_email:
-                        user_name = user_email
-                    elif phone_number:
-                        user_name = phone_number
-                    else:
-                        user_name = f"User_{user_id.split('|')[-1][:8]}"
-                
-                # Create the user with SQLAlchemy
-                new_user = User(
-                    id=user_uuid,
-                    name=user_name,
-                    email=user_email,
-                    role="pending",
-                    profile_image_url=user_picture if user_picture else "/user.png",
-                    last_active_at=int(time.time()),
-                    created_at=int(time.time()),
-                    updated_at=int(time.time()),
-                    oauth_sub=user_id
-                )
-                
-                # Add the user to the database
-                db.add(new_user)
-                db.commit()
-                db.refresh(new_user)
-                
-                # Use the utility to add default permissions for the user
-                try:
-                    from open_webui.utils.access_control import get_permissions
-                    from open_webui.config import DEFAULT_USER_PERMISSIONS
-                    # We don't need to do anything special here, as the get_permissions function
-                    # will automatically use the default permissions when the user first logs in
-                    logger.info(f"Default permissions for user {new_user.id} will be applied automatically")
-                except Exception as e:
-                    logger.error(f"Error setting default permissions: {str(e)}")
-                
-                user = new_user
-            else:
-                # User exists, update if needed
-                if user.oauth_sub != user_id:
-                    user.oauth_sub = user_id
-                if user_email and not user.email:
-                    user.email = user_email
-                if user_name and not user.name:
-                    user.name = user_name
-                if user_picture and not user.profile_image_url:
-                    user.profile_image_url = user_picture
-                
-                user.updated_at = int(time.time())
-                user.last_active_at = int(time.time())
-                db.commit()
-                
-            # Create JWT tokens
-            jwt_token = create_token(data={"id": str(user.id)})
-            refresh_token = create_token(data={"id": str(user.id)})
+            # Find user by identifiers
+            user = find_user_by_identifiers(db, user_info)
             
-            # Update the user's permissions if needed
-            if hasattr(user, 'role') and user.role == "pending":
-                # Update role to "user" if it was pending
-                user.role = "user"
-                db.commit()
+            # Check if we have enough info to identify or create a user
+            if user is None and not has_sufficient_user_info(user_info):
+                return handle_insufficient_user_info(frontend_url)
             
-            # Prepare frontend URL with token in query params
-            frontend_url = result.get("frontend_base_url", "")
+            # Create or update user
+            user = create_or_update_user(db, user, user_info)
             
-            # Ensure we have a proper redirect URL, remove any leading/trailing slashes
-            if frontend_url.endswith('/'):
-                frontend_url = frontend_url[:-1]
-                
-            redirect_url = f"{frontend_url}/auth?token={jwt_token}"
-            logger.info(f"Redirecting to {redirect_url}")
+            # Generate authentication tokens
+            tokens = generate_auth_tokens(user)
             
-            # Prepare cookies for the response
-            response = RedirectResponse(url=redirect_url)
-            response.set_cookie(
-                "access_token",
-                jwt_token,
-                httponly=True,
-                secure=True,
-                samesite="lax",
-                max_age=60 * 60 * 24 * 7,  # 7 days
-            )
-            response.set_cookie(
-                "refresh_token",
-                refresh_token,
-                httponly=True,
-                secure=True,
-                samesite="lax",
-                max_age=60 * 60 * 24 * 30,  # 30 days
-            )
+            # Prepare and return response with cookies
+            return prepare_auth_response(frontend_url, tokens)
             
-            return response
         except Exception as e:
             db.rollback()
-            logger.error(f"Error in Auth0 callback: {str(e)}")
+            logger.error(f"Error in Auth0 callback database operations: {str(e)}")
             logger.exception(e)
             encoded_error = quote(f"Authentication failed: {str(e)}")
-            return RedirectResponse(url=f"{result.get('frontend_base_url', '')}/auth?error={encoded_error}")
+            return RedirectResponse(url=f"{frontend_url}/auth?error={encoded_error}")
         finally:
             db.close()
-        
-    except Exception as e:
-        # Log the error 
-        logger.error(f"Error in Auth0 callback: {str(e)}")
-        
-        # Get frontend URL for redirect based on the frontend_origin in the session
-        frontend_origin = request.session.get("frontend_origin", "")
-        error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
-        
-        # Ensure error_url doesn't end with a slash before adding query parameters
-        if error_url.endswith('/'):
-            error_url = error_url[:-1]
             
-        # Create an error message and redirect to the frontend
-        encoded_error = quote(f"Authentication error: {str(e)}")
-        
-        logger.error(f"Redirecting to error page with: {str(e)}")
-        return RedirectResponse(url=f"{error_url}/auth?error={encoded_error}")
+    except Exception as e:
+        return handle_general_exception(request, e)
 
 
 ############################
