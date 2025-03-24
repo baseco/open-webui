@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { WEBUI_BASE_URL } from '$lib/constants';
   export let className = '';
   
   function handleAuth0Login() {
@@ -18,7 +19,7 @@
   on:click={handleAuth0Login}
 >
   <img
-    src="https://cdn.auth0.com/styleguide/components/1.0.8/media/logos/img/badge.png"
+    src="/auth/auth0-badge.png"
     alt="Auth0"
     class="h-5 w-5"
   />

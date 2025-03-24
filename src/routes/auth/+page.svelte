@@ -1,37 +1,52 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-
 	import { onMount, getContext, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 
 	import { getBackendConfig } from '$lib/apis';
-	import { ldapUserSignIn, getSessionUser, userSignIn, userSignUp } from '$lib/apis/auths';
+	import { getSessionUser } from '$lib/apis/auths';
 	import { trackUserRegisteredWithAuth0, trackUserLoggedInWithAuth0 } from '$lib/services/analytics';
 
-	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
+	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
 
-	import { generateInitialsImage, canvasPixelTest } from '$lib/utils';
-
-	import Spinner from '$lib/components/common/Spinner.svelte';
-	import OnBoarding from '$lib/components/OnBoarding.svelte';
+	// Import the new components
+	import VideoBackground from '$lib/components/auth/VideoBackground.svelte';
+	import FrostedCard from '$lib/components/auth/FrostedCard.svelte';
+	import ChannelLogo from '$lib/components/auth/ChannelLogo.svelte';
 	import Auth0Button from '$lib/components/auth/Auth0Button.svelte';
+	import FeatureSlider from '$lib/components/auth/FeatureSlider.svelte';
+	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	const i18n = getContext('i18n');
 
 	let loaded = false;
-
-	let mode = $config?.features.enable_ldap ? 'ldap' : 'signin';
-	let showAdminLogin = false;
-
-	let name = '';
-	let email = '';
-	let password = '';
-
-	let ldapUsername = '';
-
 	let authError: string | null = null;
+	
+	// Feature slides data with more interesting Channel-related content
+	const featureSlides = [
+		{ 
+			title: 'One Place for All AI Assistants',
+			description: 'Connect with the best AI models and assistants through a single, unified interface',
+			image: `${WEBUI_BASE_URL}/static/splash.png` 
+		},
+		{ 
+			title: 'Powerful Conversations',
+			description: 'Engage in natural conversations with multiple AI models',
+			image: `${WEBUI_BASE_URL}/static/splash.png` 
+		},
+		{ 
+			title: 'Customizable Experience',
+			description: 'Configure models and settings to match your specific needs',
+			image: `${WEBUI_BASE_URL}/static/splash.png` 
+		},
+		{ 
+			title: 'Privacy First',
+			description: 'Your conversations stay private and secure',
+			image: `${WEBUI_BASE_URL}/static/splash.png` 
+		}
+	];
 
 	const querystringValue = (key) => {
 		const querystring = window.location.search;
@@ -65,44 +80,6 @@
 
 			const redirectPath = querystringValue('redirect') || '/';
 			goto(redirectPath);
-		}
-	};
-
-	const signInHandler = async () => {
-		const sessionUser = await userSignIn(email, password).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
-
-		await setSessionUser(sessionUser);
-	};
-
-	const signUpHandler = async () => {
-		const sessionUser = await userSignUp(name, email, password, generateInitialsImage(name)).catch(
-			(error) => {
-				toast.error(`${error}`);
-				return null;
-			}
-		);
-
-		await setSessionUser(sessionUser);
-	};
-
-	const ldapSignInHandler = async () => {
-		const sessionUser = await ldapUserSignIn(ldapUsername, password).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
-		await setSessionUser(sessionUser);
-	};
-
-	const submitHandler = async () => {
-		if (mode === 'ldap') {
-			await ldapSignInHandler();
-		} else if (mode === 'signin') {
-			await signInHandler();
-		} else {
-			await signUpHandler();
 		}
 	};
 
@@ -149,31 +126,6 @@
 		await setSessionUser(sessionUser);
 	};
 
-	let onboarding = false;
-
-	async function setLogoImage() {
-		await tick();
-		const logo = document.getElementById('logo');
-
-		if (logo) {
-			const isDarkMode = document.documentElement.classList.contains('dark');
-
-			if (isDarkMode) {
-				const darkImage = new Image();
-				darkImage.src = '/static/favicon-dark.png';
-
-				darkImage.onload = () => {
-					logo.src = '/static/favicon-dark.png';
-					logo.style.filter = ''; // Ensure no inversion is applied if favicon-dark.png exists
-				};
-
-				darkImage.onerror = () => {
-					logo.style.filter = 'invert(1)'; // Invert image if favicon-dark.png is missing
-				};
-			}
-		}
-	}
-
 	onMount(async () => {
 		if ($user !== undefined) {
 			await goto('/');
@@ -193,17 +145,7 @@
 		}
 		
 		await checkOauthCallback();
-
 		loaded = true;
-		setLogoImage();
-		
-		showAdminLogin = querystringValue('showadminlogin') === 'true';
-
-		if (($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false) {
-			await signInHandler();
-		} else {
-			onboarding = $config?.onboarding ?? false;
-		}
 	});
 </script>
 
@@ -213,326 +155,86 @@
 	</title>
 </svelte:head>
 
-<OnBoarding
-	bind:show={onboarding}
-	getStartedHandler={() => {
-		onboarding = false;
-		mode = $config?.features.enable_ldap ? 'ldap' : 'signup';
-	}}
-/>
+{#if loaded}
+	<div class="flex flex-col md:flex-row min-h-screen w-full font-primary">
+		<!-- Channel Logo positioned consistently across all screen sizes -->
+		<div class="absolute top-8 left-8 z-20">
+			<ChannelLogo onClick={() => goto('/')} />
+		</div>
 
-<div class="w-full h-screen max-h-[100dvh] text-white relative">
-	<div class="w-full h-full absolute top-0 left-0 bg-white dark:bg-black"></div>
+		<!-- Left side - Login form -->
+		<div class="relative w-full md:w-1/2 flex flex-col items-center justify-center p-8 min-h-[100vh] md:min-h-screen">
+			<div class="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
+				<VideoBackground />
+			</div>
 
-	<div class="w-full absolute top-0 left-0 right-0 h-8 drag-region" />
+			<FrostedCard className="max-w-md w-full mt-16 md:mt-0">
+				<div class="relative p-6">
+					<div class="text-left mb-6">
+						<h1 class="text-3xl font-bold">{$WEBUI_NAME}</h1>
+						<p class="mt-4 text-xs text-gray-600" style="font-weight: 300;">
+							{$i18n.t('Connect with all the top AI assistants in one place.')}
+						</p>
+					</div>
 
-	{#if loaded}
-		<div class="fixed m-10 z-50">
-			<div class="flex space-x-2">
-				<div class=" self-center">
-					<img
-						id="logo"
-						crossorigin="anonymous"
-						src="{WEBUI_BASE_URL}/static/splash.png"
-						class=" w-6 rounded-full"
-						alt="logo"
-					/>
+					<div class="space-y-4">
+						{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
+							<div class="flex items-center justify-center gap-3 text-xl text-center font-semibold">
+								<div>
+									{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+								</div>
+								<div>
+									<Spinner />
+								</div>
+							</div>
+						{:else if $config?.oauth?.providers?.auth0}
+							<!-- Single Sign In Button -->
+							<button 
+								class="w-full bg-black hover:bg-black/90 text-white rounded-full font-medium py-2.5 px-4 flex justify-center items-center"
+								on:click={() => {
+									// Create the Auth0 login URL with the frontend origin and port explicitly encoded in the state
+									const frontendOrigin = encodeURIComponent(window.location.origin);
+									
+									// Set the returnTo URL to the current origin + /auth to ensure we return to the frontend
+									const returnToUrl = encodeURIComponent(`${window.location.origin}/auth`);
+									
+									// Redirect to the Auth0 login endpoint with the frontend origin
+									window.location.href = `/api/v1/auths/oauth/auth0/login?frontendOrigin=${frontendOrigin}&returnTo=${returnToUrl}`;
+								}}
+							>
+								Sign In
+							</button>
+						{/if}
+
+						{#if authError}
+							<div class="text-red-500 text-xs mt-2 text-center">
+								{authError}
+							</div>
+						{/if}
+
+						<p class="text-xs text-center text-gray-600 mt-4">
+							Sign up via the Channel mobile app
+						</p>
+					</div>
+				</div>
+			</FrostedCard>
+		</div>
+
+		<!-- Right side - Feature showcase -->
+		<div class="w-full md:w-1/2 bg-[#E4E6E9] min-h-[80vh] md:min-h-screen flex items-center justify-center p-4">
+			<!-- Custom width for right panel -->
+			<div class="w-full max-w-[52rem] overflow-hidden rounded-lg bg-white/30 backdrop-blur-xl backdrop-filter shadow-lg border border-white/20 h-[80vh] md:h-[96vh] relative">
+				<div class="p-8 h-full flex flex-col items-center justify-center">
+					<div class="flex-grow w-full flex items-center justify-center">
+						<!-- Feature slider component -->
+						<FeatureSlider slides={featureSlides} />
+					</div>
 				</div>
 			</div>
 		</div>
-
-		<div
-			class="fixed bg-transparent min-h-screen w-full flex justify-center font-primary z-50 text-black dark:text-white"
-		>
-			<div class="w-full sm:max-w-md px-10 min-h-screen flex flex-col text-center">
-				{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
-					<div class=" my-auto pb-10 w-full">
-						<div
-							class="flex items-center justify-center gap-3 text-xl sm:text-2xl text-center font-semibold dark:text-gray-200"
-						>
-							<div>
-								{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
-							</div>
-
-							<div>
-								<Spinner />
-							</div>
-						</div>
-					</div>
-				{:else}
-					<div class="  my-auto pb-10 w-full dark:text-gray-100">
-						<form
-							class=" flex flex-col justify-center"
-							on:submit={(e) => {
-								e.preventDefault();
-								submitHandler();
-							}}
-						>
-							<div class="mb-1">
-								<div class=" text-2xl font-medium">
-									{#if $config?.onboarding ?? false}
-										{$i18n.t(`Get started with {{WEBUI_NAME}}`, { WEBUI_NAME: $WEBUI_NAME })}
-									{:else if mode === 'ldap'}
-										{$i18n.t(`Sign in to {{WEBUI_NAME}} with LDAP`, { WEBUI_NAME: $WEBUI_NAME })}
-									{:else if mode === 'signin'}
-										{$i18n.t(`Sign in to {{WEBUI_NAME}}`, { WEBUI_NAME: $WEBUI_NAME })}
-									{:else}
-										{$i18n.t(`Sign up to {{WEBUI_NAME}}`, { WEBUI_NAME: $WEBUI_NAME })}
-									{/if}
-								</div>
-
-								{#if $config?.onboarding ?? false}
-									<div class=" mt-1 text-xs font-medium text-gray-500">
-										{$i18n.t(
-											'{{WEBUI_NAME}} does not make any external connections, and your data stays securely on your locally hosted server.',
-											{ WEBUI_NAME: $WEBUI_NAME }
-										)}
-									</div>
-								{/if}
-							</div>
-
-							{#if (($config?.features.enable_login_form || $config?.features.enable_ldap) && (showAdminLogin || ($config?.onboarding ?? false)))}
-								<div class="flex flex-col mt-4">
-									{#if mode === 'signup'}
-										<div class="mb-2">
-											<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Name')}</div>
-											<input
-												bind:value={name}
-												type="text"
-												class="my-0.5 w-full text-sm outline-hidden bg-transparent"
-												autocomplete="name"
-												placeholder={$i18n.t('Enter Your Full Name')}
-												required
-											/>
-										</div>
-									{/if}
-
-									{#if mode === 'ldap'}
-										<div class="mb-2">
-											<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Username')}</div>
-											<input
-												bind:value={ldapUsername}
-												type="text"
-												class="my-0.5 w-full text-sm outline-hidden bg-transparent"
-												autocomplete="username"
-												name="username"
-												placeholder={$i18n.t('Enter Your Username')}
-												required
-											/>
-										</div>
-									{:else}
-										<div class="mb-2">
-											<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Email')}</div>
-											<input
-												bind:value={email}
-												type="email"
-												class="my-0.5 w-full text-sm outline-hidden bg-transparent"
-												autocomplete="email"
-												name="email"
-												placeholder={$i18n.t('Enter Your Email')}
-												required
-											/>
-										</div>
-									{/if}
-
-									<div>
-										<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Password')}</div>
-
-										<input
-											bind:value={password}
-											type="password"
-											class="my-0.5 w-full text-sm outline-hidden bg-transparent"
-											placeholder={$i18n.t('Enter Your Password')}
-											autocomplete="current-password"
-											name="current-password"
-											required
-										/>
-									</div>
-								</div>
-							{/if}
-							<div class="mt-5">
-								{#if (($config?.features.enable_login_form || $config?.features.enable_ldap) && (showAdminLogin || ($config?.onboarding ?? false)))}
-									{#if mode === 'ldap'}
-										<button
-											class="bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-											type="submit"
-										>
-											{$i18n.t('Authenticate')}
-										</button>
-									{:else}
-										<button
-											class="bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-											type="submit"
-										>
-											{mode === 'signin'
-												? $i18n.t('Sign in')
-												: ($config?.onboarding ?? false)
-													? $i18n.t('Create Admin Account')
-													: $i18n.t('Create Account')}
-										</button>
-
-										{#if $config?.features.enable_signup && !($config?.onboarding ?? false)}
-											<div class=" mt-4 text-sm text-center">
-												{mode === 'signin'
-													? $i18n.t("Don't have an account?")
-													: $i18n.t('Already have an account?')}
-
-												<button
-													class=" font-medium underline"
-													type="button"
-													on:click={() => {
-														if (mode === 'signin') {
-															mode = 'signup';
-														} else {
-															mode = 'signin';
-														}
-													}}
-												>
-													{mode === 'signin' ? $i18n.t('Sign up') : $i18n.t('Sign in')}
-												</button>
-											</div>
-										{/if}
-									{/if}
-								{/if}
-							</div>
-						</form>
-
-						{#if Object.keys($config?.oauth?.providers ?? {}).length > 0}
-							<div class="inline-flex items-center justify-center w-full">
-								<hr class="w-32 h-px my-4 border-0 dark:bg-gray-100/10 bg-gray-700/10" />
-								{#if (($config?.features.enable_login_form || $config?.features.enable_ldap) && showAdminLogin)}
-									<span
-										class="px-3 text-sm font-medium text-gray-900 dark:text-white bg-transparent"
-										>{$i18n.t('or')}</span
-									>
-								{/if}
-
-								<hr class="w-32 h-px my-4 border-0 dark:bg-gray-100/10 bg-gray-700/10" />
-							</div>
-							<div class="flex flex-col space-y-2">
-								{#if $config?.oauth?.providers?.auth0}
-									<Auth0Button />
-								{/if}
-								{#if $config?.oauth?.providers?.google}
-									<button
-										class="flex justify-center items-center bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-										on:click={() => {
-											window.location.href = `${WEBUI_BASE_URL}/oauth/google/login`;
-										}}
-									>
-										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" class="size-6 mr-3">
-											<path
-												fill="#EA4335"
-												d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-											/><path
-												fill="#4285F4"
-												d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-											/><path
-												fill="#FBBC05"
-												d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-											/><path
-												fill="#34A853"
-												d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-											/><path fill="none" d="M0 0h48v48H0z" />
-										</svg>
-										<span>{$i18n.t('Continue with {{provider}}', { provider: 'Google' })}</span>
-									</button>
-								{/if}
-								{#if $config?.oauth?.providers?.microsoft}
-									<button
-										class="flex justify-center items-center bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-										on:click={() => {
-											window.location.href = `${WEBUI_BASE_URL}/oauth/microsoft/login`;
-										}}
-									>
-										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" class="size-6 mr-3">
-											<rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect
-												x="1"
-												y="11"
-												width="9"
-												height="9"
-												fill="#00a4ef"
-											/><rect x="11" y="1" width="9" height="9" fill="#7fba00" /><rect
-												x="11"
-												y="11"
-												width="9"
-												height="9"
-												fill="#ffb900"
-											/>
-										</svg>
-										<span>{$i18n.t('Continue with {{provider}}', { provider: 'Microsoft' })}</span>
-									</button>
-								{/if}
-								{#if $config?.oauth?.providers?.github}
-									<button
-										class="flex justify-center items-center bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-										on:click={() => {
-											window.location.href = `${WEBUI_BASE_URL}/oauth/github/login`;
-										}}
-									>
-										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-6 mr-3">
-											<path
-												fill="currentColor"
-												d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"
-											/>
-										</svg>
-										<span>{$i18n.t('Continue with {{provider}}', { provider: 'GitHub' })}</span>
-									</button>
-								{/if}
-								{#if $config?.oauth?.providers?.oidc}
-									<button
-										class="flex justify-center items-center bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-										on:click={() => {
-											window.location.href = `${WEBUI_BASE_URL}/oauth/oidc/login`;
-										}}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											fill="none"
-											viewBox="0 0 24 24"
-											stroke-width="1.5"
-											stroke="currentColor"
-											class="size-6 mr-3"
-										>
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"
-											/>
-										</svg>
-
-										<span
-											>{$i18n.t('Continue with {{provider}}', {
-												provider: $config?.oauth?.providers?.oidc ?? 'SSO'
-											})}</span
-										>
-									</button>
-								{/if}
-							</div>
-						{/if}
-
-						{#if ($config?.features.enable_ldap && $config?.features.enable_login_form && showAdminLogin)}
-							<div class="mt-2">
-								<button
-									class="flex justify-center items-center text-xs w-full text-center underline"
-									type="button"
-									on:click={() => {
-										if (mode === 'ldap')
-											mode = ($config?.onboarding ?? false) ? 'signup' : 'signin';
-										else mode = 'ldap';
-									}}
-								>
-									<span
-										>{mode === 'ldap'
-											? $i18n.t('Continue with Email')
-											: $i18n.t('Continue with LDAP')}</span
-									>
-								</button>
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</div>
-	{/if}
-</div>
+	</div>
+{:else}
+	<div class="flex items-center justify-center min-h-screen bg-white dark:bg-black">
+		<Spinner />
+	</div>
+{/if}
