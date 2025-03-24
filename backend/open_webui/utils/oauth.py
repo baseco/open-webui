@@ -41,12 +41,12 @@ from open_webui.env import (
     WEBUI_NAME,
     WEBUI_AUTH_COOKIE_SAME_SITE,
     WEBUI_AUTH_COOKIE_SECURE,
+    SRC_LOG_LEVELS, 
+    GLOBAL_LOG_LEVEL
 )
 from open_webui.utils.misc import parse_duration
 from open_webui.utils.auth import get_password_hash, create_token
 from open_webui.utils.webhook import post_webhook
-
-from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
@@ -476,6 +476,77 @@ class OAuthManager:
                 encoded_error = quote(f"Failed to retrieve user data from {provider_name}")
                 return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
             
+            # If response object is provided, use it to set cookies (cookie-based auth flow)
+            if response:
+                # Process the token
+                from open_webui.utils.auth import create_token
+                from open_webui.env import WEBUI_AUTH_COOKIE_SECURE, WEBUI_AUTH_COOKIE_SAME_SITE
+                
+                # Create a token
+                jwt_token = create_token({"provider": provider_name, **user_data})
+                
+                # Set the cookie token
+                response.set_cookie(
+                    key="token",
+                    value=jwt_token,
+                    httponly=True,  # Ensures the cookie is not accessible via JavaScript
+                    samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+                    secure=WEBUI_AUTH_COOKIE_SECURE,
+                )
+                
+                if auth_manager_config.ENABLE_OAUTH_SIGNUP:
+                    oauth_id_token = token.get("id_token")
+                    response.set_cookie(
+                        key="oauth_id_token",
+                        value=oauth_id_token,
+                        httponly=True,
+                        samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+                        secure=WEBUI_AUTH_COOKIE_SECURE,
+                    )
+                
+                # Get frontend URL for redirect based on the frontend_origin in the session
+                frontend_url = None
+                try:
+                    # Get the frontend_origin from the session
+                    frontend_origin = request.session.get("frontend_origin")
+                    
+                    if frontend_origin:
+                        # Use the frontend_origin from the session
+                        frontend_url = frontend_origin
+                        log.info(f"Using frontend URL from session: {frontend_url}")
+                    else:
+                        # Fallback to AUTH0_CALLBACK_URL if no frontend_origin in session
+                        from open_webui.config import AUTH0_CALLBACK_URL
+                        callback_url_str = AUTH0_CALLBACK_URL.value
+                        
+                        # For development environments, replace backend port with frontend port
+                        if "localhost:8080" in callback_url_str or "127.0.0.1:8080" in callback_url_str:
+                            frontend_url = callback_url_str.replace(":8080", ":5173")
+                        else:
+                            # For production, remove API path component
+                            frontend_url = callback_url_str.split("/api/")[0] if "/api/" in callback_url_str else str(request.base_url).rstrip("/")
+                        
+                    log.info(f"Frontend URL for redirect: {frontend_url}")
+                    
+                    # Return user data and necessary redirect information
+                    return {
+                        "user_data": user_data,
+                        "jwt_token": jwt_token,
+                        "frontend_base_url": frontend_url
+                    }
+                except Exception as e:
+                    log.error(f"Error determining frontend URL: {e}")
+                    # Simple fallback using request base URL
+                    base_url = str(request.base_url).rstrip("/")
+                    frontend_url = base_url.replace(":8080", ":5173") if ":8080" in base_url else base_url
+                
+                return {
+                    "user_data": user_data,
+                    "jwt_token": jwt_token,
+                    "frontend_base_url": frontend_url
+                }
+            
+            # No response provided - regular token-based auth flow
             # Get frontend URL for success redirect
             frontend_origin = request.session.get("frontend_origin", "")
             frontend_url = frontend_origin or f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
@@ -505,145 +576,12 @@ class OAuthManager:
     async def handle_callback_original(self, request, provider_name, response=None):
         """
         Handle the callback from an OAuth provider.
+        
+        This is a legacy method that now delegates to handle_callback.
+        It is maintained for backward compatibility.
         """
-        
-        import logging
-        from urllib.parse import quote
-        from starlette.responses import RedirectResponse
-        
-        log = logging.getLogger(f"open_webui.oauth.{provider_name}")
-        log.info(f"Handling callback for {provider_name}")
-        
-        try:
-            # Get the provider details
-            provider_data = self._get_provider_data(provider_name)
-            if not provider_data:
-                log.error(f"Provider data not found for {provider_name}")
-                
-                # Get frontend URL for redirect
-                frontend_origin = request.session.get("frontend_origin", "")
-                error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
-                
-                # Ensure error_url doesn't end with a slash before adding query parameters
-                if error_url.endswith('/'):
-                    error_url = error_url[:-1]
-                    
-                encoded_error = quote(f"Provider {provider_name} not found")
-                return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
-                
-            # Get the token
-            token = await self._get_token(request, provider_name)
-            if not token:
-                log.error(f"Failed to get token for {provider_name}")
-                
-                # Get frontend URL for redirect
-                frontend_origin = request.session.get("frontend_origin", "")
-                error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
-                
-                # Ensure error_url doesn't end with a slash before adding query parameters
-                if error_url.endswith('/'):
-                    error_url = error_url[:-1]
-                    
-                encoded_error = quote(f"Failed to authenticate with {provider_name}")
-                return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
-                
-            # Get the user data
-            user_data = await self._get_user_data(token, provider_name)
-            if not user_data:
-                log.error(f"Failed to get user data for {provider_name}")
-                
-                # Get frontend URL for redirect
-                frontend_origin = request.session.get("frontend_origin", "")
-                error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
-                
-                # Ensure error_url doesn't end with a slash before adding query parameters
-                if error_url.endswith('/'):
-                    error_url = error_url[:-1]
-                    
-                encoded_error = quote(f"Failed to retrieve user data from {provider_name}")
-                return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
-                
-            # Process the token
-            from open_webui.auth import manager as auth_manager
-            from open_webui.config import WEBUI_AUTH_COOKIE_SECURE, WEBUI_AUTH_COOKIE_SAME_SITE
-            
-            # Create a token
-            jwt_token = auth_manager.create_jwt_token(provider_name, user_data)
-            
-            # Set the cookie token
-            response.set_cookie(
-                key="token",
-                value=jwt_token,
-                httponly=True,  # Ensures the cookie is not accessible via JavaScript
-                samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
-                secure=WEBUI_AUTH_COOKIE_SECURE,
-            )
-
-            if auth_manager_config.ENABLE_OAUTH_SIGNUP:
-                oauth_id_token = token.get("id_token")
-                response.set_cookie(
-                    key="oauth_id_token",
-                    value=oauth_id_token,
-                    httponly=True,
-                    samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
-                    secure=WEBUI_AUTH_COOKIE_SECURE,
-                )
-            
-            # Get frontend URL for redirect based on the frontend_origin in the session
-            frontend_url = None
-            try:
-                # Get the frontend_origin from the session
-                frontend_origin = request.session.get("frontend_origin")
-                
-                if frontend_origin:
-                    # Use the frontend_origin from the session
-                    frontend_url = frontend_origin
-                    log.info(f"Using frontend URL from session: {frontend_url}")
-                else:
-                    # Fallback to AUTH0_CALLBACK_URL if no frontend_origin in session
-                    from open_webui.config import AUTH0_CALLBACK_URL
-                    callback_url_str = AUTH0_CALLBACK_URL.value
-                    
-                    # For development environments, replace backend port with frontend port
-                    if "localhost:8080" in callback_url_str or "127.0.0.1:8080" in callback_url_str:
-                        frontend_url = callback_url_str.replace(":8080", ":5173")
-                    else:
-                        # For production, remove API path component
-                        frontend_url = callback_url_str.split("/api/")[0] if "/api/" in callback_url_str else str(request.base_url).rstrip("/")
-                    
-                log.info(f"Frontend URL for redirect: {frontend_url}")
-                
-                # Return user data and necessary redirect information
-                return {
-                    "user_data": user_data,
-                    "jwt_token": jwt_token,
-                    "frontend_base_url": frontend_url
-                }
-            except Exception as e:
-                log.error(f"Error determining frontend URL: {e}")
-                # Simple fallback using request base URL
-                base_url = str(request.base_url).rstrip("/")
-                frontend_url = base_url.replace(":8080", ":5173") if ":8080" in base_url else base_url
-            
-            return {
-                "user_data": user_data,
-                "jwt_token": jwt_token,
-                "frontend_base_url": frontend_url
-            }
-            
-        except Exception as e:
-            log.error(f"Authentication error: {str(e)}")
-            
-            # Get frontend URL for redirect
-            frontend_origin = request.session.get("frontend_origin", "")
-            error_url = frontend_origin or f"{request.base_url.replace(str(request.base_url.port), '5173')}"
-            
-            # Ensure error_url doesn't end with a slash before adding query parameters
-            if error_url.endswith('/'):
-                error_url = error_url[:-1]
-                
-            encoded_error = quote(f"Authentication error: {str(e)}")
-            return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
+        # Just call the refactored handle_callback with the same parameters
+        return await self.handle_callback(request, provider_name, response)
 
 # This will be filled by main.py after app initialization
 oauth_manager = None
