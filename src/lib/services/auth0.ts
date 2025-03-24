@@ -16,7 +16,6 @@ let auth0Client: Auth0Client | null = null;
  */
 const getConsistentReturnUrl = (): string => {
   // Get the current origin but ensure we use the preferred domain
-  const origin = window.location.origin;
   const port = window.location.port ? `:${window.location.port}` : '';
   const protocol = window.location.protocol;
   

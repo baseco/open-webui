@@ -1,12 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   export let className = '';
-  
-  // Create an absolute URL using the current origin
-  function createFullUrl(path: string): string {
-    const origin = window.location.origin;
-    return `${origin}${path}`;
-  }
   
   function handleAuth0Login() {
     // Create the Auth0 login URL with the frontend origin and port explicitly encoded in the state
