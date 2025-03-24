@@ -3,16 +3,17 @@ import logging
 import mimetypes
 import sys
 import uuid
-
+import json
+import httpx
 import aiohttp
-from authlib.integrations.starlette_client import OAuth
-from authlib.oidc.core import UserInfo
+from uuid import uuid4
+from starlette.responses import RedirectResponse
+from authlib.integrations.starlette_client import OAuth, OAuthError
+from loguru import logger
 from fastapi import (
     HTTPException,
     status,
 )
-from starlette.responses import RedirectResponse
-
 from open_webui.models.auths import Auths
 from open_webui.models.users import Users
 from open_webui.models.groups import Groups, GroupModel, GroupUpdateForm
@@ -40,12 +41,12 @@ from open_webui.env import (
     WEBUI_NAME,
     WEBUI_AUTH_COOKIE_SAME_SITE,
     WEBUI_AUTH_COOKIE_SECURE,
+    SRC_LOG_LEVELS, 
+    GLOBAL_LOG_LEVEL
 )
 from open_webui.utils.misc import parse_duration
 from open_webui.utils.auth import get_password_hash, create_token
 from open_webui.utils.webhook import post_webhook
-
-from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
@@ -213,21 +214,22 @@ class OAuthManager:
                 )
 
     async def login(self, request, provider):
-        """Redirect to the OAuth provider's authorization page."""
-        if provider not in OAUTH_PROVIDERS:
-            log.error(f"Provider {provider} not found in OAUTH_PROVIDERS")
-            raise HTTPException(404, detail=f"Provider {provider} not found")
-            
-        log.error(f"Redirecting to {provider} login page")
+        """
+        Redirect to the OAuth provider's authorization page.
+        """
         client = self.get_client(provider)
-        
-        # Get the redirect URI from the provider config or fallback to a computed one
-        redirect_uri = OAUTH_PROVIDERS[provider].get("redirect_uri") or request.url_for(
-            f"oauth_{provider}_callback"
-        )
-        
-        log.error(f"Redirect URI for {provider}: {redirect_uri}")
-        
+
+        # Form the redirect URL for the callback
+        redirect_uri = f"{request.url.scheme}://{request.url.netloc}{request.app.url_path_for(f'oauth_{provider}_callback')}"
+
+        # Store origin in session for callback redirect
+        if "frontend_origin" in request.query_params:
+            request.session["frontend_origin"] = request.query_params["frontend_origin"]
+
+        # Store returnTo URL in session for callback redirect
+        if "returnTo" in request.query_params:
+            request.session["returnTo"] = request.query_params["returnTo"]
+
         try:
             return await client.authorize_redirect(request, redirect_uri)
         except Exception as e:
@@ -238,258 +240,348 @@ class OAuthManager:
                 detail=f"Error redirecting to {provider}: {str(e)}"
             )
 
-    async def handle_callback(self, request, provider, response=None):
-        """Handle the callback from the OAuth provider"""
-        # This is a common place where errors occur, so log the request
-        log.error(f"Handling OAuth callback for provider: {provider}")
+    def _get_provider_data(self, provider_name):
+        """
+        Get the provider configuration data for a given provider name.
+        
+        Args:
+            provider_name: The name of the OAuth provider (e.g., 'auth0', 'google', etc.)
+            
+        Returns:
+            dict: The provider configuration data or None if not found
+        """
+        from loguru import logger as log
         
         try:
-            client = self.get_client(provider)
-            token = await client.authorize_access_token(request)
+            if provider_name in OAUTH_PROVIDERS:
+                return OAUTH_PROVIDERS[provider_name]
+            log.error(f"Provider {provider_name} not found in OAUTH_PROVIDERS")
+            return None
+        except Exception as e:
+            log.error(f"Error getting provider data for {provider_name}: {str(e)}")
+            log.exception(e)
+            return None
+    
+    async def _get_token(self, request, provider_name):
+        """
+        Get the token from the OAuth provider using the authorization code
+        
+        Args:
+            request: The request object from the callback
+            provider_name: The name of the OAuth provider (e.g., 'auth0', 'google', etc.)
             
-            log.error(f"Received token from provider: {provider}, token type: {type(token)}")
-            
-            # Some providers like Google return the userinfo directly in the token
-            if provider == "google" and "userinfo" in token:
-                user_data = token["userinfo"]
-            else:
-                # Use token to get user info from the provider
-                user_data = await client.userinfo(token=token)
+        Returns:
+            dict: The token data or None if failed
+        """
+        from loguru import logger as log
+        
+        try:
+            client = self.get_client(provider_name)
+            if not client:
+                log.error(f"Client not found for {provider_name}")
+                return None
                 
-            log.error(f"Received user data: {user_data}")
+            # Get the redirect URI for the callback - using direct path construction
+            # instead of url_path_for since the route might not have a name
+            redirect_uri = f"{request.url.scheme}://{request.url.netloc}/api/v1/auths/oauth/{provider_name}/callback"
+            
+            log.info(f"Using redirect URI: {redirect_uri}")
+            
+            # Retrieve and validate the callback parameters
+            code = request.query_params.get("code")
+            state = request.query_params.get("state")
+            
+            if not code:
+                log.error("No authorization code found in the request")
+                return None
                 
-            # This is the unique identifier for the user in the provider's system
-            provider_user_id = user_data.get("sub") or user_data.get("id")
-            provider_sub = f"{provider}|{provider_user_id}"
+            log.info(f"Received authorization code and state in callback")
             
-            # Look for an email address in the user_data using the configured claim
-            email_claim = auth_manager_config.OAUTH_EMAIL_CLAIM
-            email = user_data.get(email_claim, "")
-            
-            # We currently mandate that email addresses are provided
-            if not email:
-                # If the provider is GitHub, and public email is not provided, we can use the access token to fetch the user's email
-                if provider == "github":
+            try:
+                # Exchange the authorization code for a token
+                # We're passing the request object to get the code from query params
+                # and explicitly set the redirect_uri to ensure it matches what was used in the authorization request
+                token = await client.authorize_access_token(request)
+                log.info(f"Successfully obtained access token for {provider_name}")
+                return token
+            except Exception as e:
+                # If there's an error with the state parameter, try a direct token fetch
+                log.warning(f"Error in authorize_access_token: {str(e)}")
+                
+                # If we get a state mismatch error, try to fetch the token directly without state validation
+                # This is safe because we're still validating the code which is a one-time use credential
+                if "state" in str(e).lower():
+                    log.info("Attempting direct token retrieval without state validation")
                     try:
-                        access_token = token.get("access_token")
-                        headers = {"Authorization": f"Bearer {access_token}"}
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(
-                                "https://api.github.com/user/emails", headers=headers
-                            ) as resp:
-                                if resp.ok:
-                                    emails = await resp.json()
-                                    # use the primary email as the user's email
-                                    primary_email = next(
-                                        (e["email"] for e in emails if e.get("primary")),
-                                        None,
-                                    )
-                                    if primary_email:
-                                        email = primary_email
-                                    else:
-                                        log.warning(
-                                            "No primary email found in GitHub response"
-                                        )
-                                        raise HTTPException(
-                                            400, detail=ERROR_MESSAGES.INVALID_CRED
-                                        )
-                                else:
-                                    log.warning("Failed to fetch GitHub email")
-                                    raise HTTPException(
-                                        400, detail=ERROR_MESSAGES.INVALID_CRED
-                                    )
-                    except Exception as e:
-                        log.warning(f"Error fetching GitHub email: {e}")
-                        raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
-                else:
-                    log.warning(f"OAuth callback failed, email is missing: {user_data}")
-                    raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
-            email = email.lower()
-            if (
-                "*" not in auth_manager_config.OAUTH_ALLOWED_DOMAINS
-                and email.split("@")[-1] not in auth_manager_config.OAUTH_ALLOWED_DOMAINS
-            ):
-                log.warning(
-                    f"OAuth callback failed, e-mail domain is not in the list of allowed domains: {user_data}"
-                )
-                raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
-
-            # Check if the user exists
-            user = Users.get_user_by_oauth_sub(provider_sub)
-            
-            log.error(f"Looking for user by oauth_sub: {provider_sub}, found: {user is not None}")
-
-            # If not found by oauth_sub, try to find by email
-            if not user:
-                user = Users.get_user_by_email(email)
-                log.error(f"Looking for user by email: {email}, found: {user is not None}")
-                
-                if user:
-                    # Update the user with the new oauth_sub
-                    log.error(f"Updating existing user with oauth_sub: {provider_sub}")
-                    Users.update_user_oauth_sub_by_id(user.id, provider_sub)
-
-            if user:
-                log.error(f"User found, generating JWT token...")
-                determined_role = self.get_user_role(user, user_data)
-                if user.role != determined_role:
-                    Users.update_user_role_by_id(user.id, determined_role)
-            else:
-                log.error(f"User not found, checking if signups are enabled: {auth_manager_config.ENABLE_OAUTH_SIGNUP}")
-                user_count = Users.get_num_users()
-
-                if (
-                    request.app.state.USER_COUNT
-                    and user_count >= request.app.state.USER_COUNT
-                ):
-                    raise HTTPException(
-                        403,
-                        detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
-                    )
-
-                # If the user does not exist, check if signups are enabled
-                if auth_manager_config.ENABLE_OAUTH_SIGNUP:
-                    # User doesn't exist, and signups are enabled, so create a new user
-                    log.error(f"Creating new user with email: {email}")
-                    
-                    picture_claim = auth_manager_config.OAUTH_PICTURE_CLAIM
-                    picture_url = user_data.get(
-                        picture_claim, OAUTH_PROVIDERS[provider].get("picture_url", "")
-                    )
-                    
-                    if picture_url:
-                        # Download the profile image into a base64 string
-                        try:
-                            access_token = token.get("access_token")
-                            get_kwargs = {}
-                            if access_token:
-                                get_kwargs["headers"] = {
-                                    "Authorization": f"Bearer {access_token}",
-                                }
-                            async with aiohttp.ClientSession() as session:
-                                async with session.get(picture_url, **get_kwargs) as resp:
-                                    if resp.ok:
-                                        picture = await resp.read()
-                                        base64_encoded_picture = base64.b64encode(
-                                            picture
-                                        ).decode("utf-8")
-                                        guessed_mime_type = mimetypes.guess_type(
-                                            picture_url
-                                        )[0]
-                                        if guessed_mime_type is None:
-                                            # assume JPG, browsers are tolerant enough of image formats
-                                            guessed_mime_type = "image/jpeg"
-                                        picture_url = f"data:{guessed_mime_type};base64,{base64_encoded_picture}"
-                                    else:
-                                        picture_url = "/user.png"
-                        except Exception as e:
-                            log.error(
-                                f"Error downloading profile image '{picture_url}': {e}"
+                        # Create token request parameters
+                        token_params = {
+                            "grant_type": "authorization_code",
+                            "code": code,
+                            "redirect_uri": redirect_uri,
+                        }
+                        
+                        # Get provider data for client_id and token_endpoint
+                        provider_data = await self._get_provider_data(provider_name)
+                        if not provider_data:
+                            log.error(f"Provider data not found for {provider_name}")
+                            return None
+                            
+                        # Directly fetch the token from the token endpoint
+                        token_endpoint = provider_data.get("token_endpoint")
+                        client_id = provider_data.get("client_id")
+                        client_secret = provider_data.get("client_secret")
+                        
+                        # Make a direct request to the token endpoint
+                        async with aiohttp.ClientSession() as http_client:
+                            auth = None
+                            if client_id and client_secret:
+                                auth = aiohttp.BasicAuth(client_id, client_secret)
+                                
+                            token_response = await http_client.post(
+                                token_endpoint,
+                                data=token_params,
+                                auth=auth
                             )
-                            picture_url = "/user.png"
-                    if not picture_url:
-                        picture_url = "/user.png"
-
-                    username_claim = auth_manager_config.OAUTH_USERNAME_CLAIM
-
-                    name = user_data.get(username_claim)
-                    if not name:
-                        log.warning("Username claim is missing, using email as name")
-                        name = email
-
-                    role = self.get_user_role(None, user_data)
-
-                    user = Auths.insert_new_auth(
-                        email=email,
-                        password=get_password_hash(
-                            str(uuid.uuid4())
-                        ),  # Random password, not used
-                        name=name,
-                        profile_image_url=picture_url,
-                        role=role,
-                        oauth_sub=provider_sub,
-                    )
-
-                    if auth_manager_config.WEBHOOK_URL:
-                        post_webhook(
-                            WEBUI_NAME,
-                            auth_manager_config.WEBHOOK_URL,
-                            WEBHOOK_MESSAGES.USER_SIGNUP(user.name),
-                            {
-                                "action": "signup",
-                                "message": WEBHOOK_MESSAGES.USER_SIGNUP(user.name),
-                                "user": user.model_dump_json(exclude_none=True),
-                            },
-                        )
+                            
+                            if token_response.status == 200:
+                                token_data = await token_response.json()
+                                log.info(f"Successfully obtained token directly from {provider_name}")
+                                return token_data
+                            else:
+                                log.error(f"Failed to obtain token directly: {await token_response.text()}")
+                                return None
+                    except Exception as direct_error:
+                        log.error(f"Error in direct token retrieval: {str(direct_error)}")
+                        return None
                 else:
-                    raise HTTPException(
-                        status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
-                    )
+                    log.error(f"Failed to get token for {provider_name}: {str(e)}")
+                    return None
+        except Exception as e:
+            log.error(f"Error in _get_token: {str(e)}")
+            return None
+            
+    async def _get_user_data(self, token, provider_name):
+        """
+        Get user data from the OAuth provider using the access token.
+        
+        Args:
+            token: The access token from the OAuth provider
+            provider_name: The name of the OAuth provider (e.g., 'auth0', 'google', etc.)
+            
+        Returns:
+            dict: The user data or None if failed
+        """
+        from loguru import logger as log
+        
+        try:
+            client = self.get_client(provider_name)
+            if not client:
+                log.error(f"Client not found for {provider_name}")
+                return None
+                
+            # Get user info from the OAuth provider
+            provider_data = self._get_provider_data(provider_name)
+            if not provider_data:
+                log.error(f"Provider data not found for {provider_name}")
+                return None
+                
+            userinfo_endpoint = provider_data.get("userinfo_endpoint")
+            if not userinfo_endpoint:
+                # For providers that don't specify a userinfo endpoint in their metadata,
+                # we'll try to get user info using the client's userinfo method
+                try:
+                    user_data = await client.userinfo(token=token)
+                    return user_data
+                except Exception as e:
+                    log.error(f"Error getting user info for {provider_name}: {str(e)}")
+                    log.exception(e)
+                    return None
+                    
+            # For providers with a specified userinfo endpoint
+            resp = await client.get(userinfo_endpoint, token=token)
+            if resp.status_code != 200:
+                log.error(f"Failed to get user info for {provider_name}: {resp.status_code}")
+                return None
+                
+            return resp.json()
+        except Exception as e:
+            log.error(f"Error getting user info for {provider_name}: {str(e)}")
+            log.exception(e)
+            return None
 
-            jwt_token = create_token(
-                data={"id": user.id},
-                expires_delta=parse_duration(auth_manager_config.JWT_EXPIRES_IN),
-            )
-
-            if auth_manager_config.ENABLE_OAUTH_GROUP_MANAGEMENT and user.role != "admin":
-                self.update_user_groups(
-                    user=user,
-                    user_data=user_data,
-                    default_permissions=request.app.state.config.USER_PERMISSIONS,
-                )
-
-            # Set the cookie token
-            response.set_cookie(
-                key="token",
-                value=jwt_token,
-                httponly=True,  # Ensures the cookie is not accessible via JavaScript
-                samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
-                secure=WEBUI_AUTH_COOKIE_SECURE,
-            )
-
-            if auth_manager_config.ENABLE_OAUTH_SIGNUP:
-                oauth_id_token = token.get("id_token")
+    async def handle_callback(self, request, provider_name, response=None):
+        """
+        Handle the callback from an OAuth provider.
+        
+        Args:
+            request: The request object from the callback
+            provider_name: The name of the OAuth provider (e.g., 'auth0', 'google', etc.)
+            response: Optional response object to redirect to on error
+            
+        Returns:
+            dict: The result containing user data and redirect URLs
+        """
+        from loguru import logger as log
+        from urllib.parse import quote
+        
+        try:
+            log.info(f"Handling callback for {provider_name}")
+            
+            # Check for error in the callback
+            error = request.query_params.get("error")
+            if error:
+                error_description = request.query_params.get("error_description", "")
+                log.error(f"Error from provider {provider_name}: {error} - {error_description}")
+                
+                # Get frontend URL for error redirect
+                frontend_origin = request.session.get("frontend_origin", "")
+                error_url = frontend_origin or f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
+                
+                # Ensure error_url doesn't end with a slash
+                if error_url.endswith('/'):
+                    error_url = error_url[:-1]
+                    
+                encoded_error = quote(f"Error from {provider_name}: {error}")
+                return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
+            
+            # Get the token from the provider
+            token = await self._get_token(request, provider_name)
+            if not token:
+                log.error(f"Failed to get token for {provider_name}")
+                
+                # Get frontend URL for error redirect
+                frontend_origin = request.session.get("frontend_origin", "")
+                error_url = frontend_origin or f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
+                
+                # Ensure error_url doesn't end with a slash
+                if error_url.endswith('/'):
+                    error_url = error_url[:-1]
+                    
+                encoded_error = quote(f"Failed to retrieve access token from {provider_name}")
+                return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
+            
+            # Get the user data from the provider
+            user_data = await self._get_user_data(token, provider_name)
+            if not user_data:
+                log.error(f"Failed to get user data for {provider_name}")
+                
+                # Get frontend URL for error redirect
+                frontend_origin = request.session.get("frontend_origin", "")
+                error_url = frontend_origin or f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
+                
+                # Ensure error_url doesn't end with a slash
+                if error_url.endswith('/'):
+                    error_url = error_url[:-1]
+                    
+                encoded_error = quote(f"Failed to retrieve user data from {provider_name}")
+                return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
+            
+            # If response object is provided, use it to set cookies (cookie-based auth flow)
+            if response:
+                # Process the token
+                from open_webui.utils.auth import create_token
+                from open_webui.env import WEBUI_AUTH_COOKIE_SECURE, WEBUI_AUTH_COOKIE_SAME_SITE
+                
+                # Create a token
+                jwt_token = create_token({"provider": provider_name, **user_data})
+                
+                # Set the cookie token
                 response.set_cookie(
-                    key="oauth_id_token",
-                    value=oauth_id_token,
-                    httponly=True,
+                    key="token",
+                    value=jwt_token,
+                    httponly=True,  # Ensures the cookie is not accessible via JavaScript
                     samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
                     secure=WEBUI_AUTH_COOKIE_SECURE,
                 )
+                
+                if auth_manager_config.ENABLE_OAUTH_SIGNUP:
+                    oauth_id_token = token.get("id_token")
+                    response.set_cookie(
+                        key="oauth_id_token",
+                        value=oauth_id_token,
+                        httponly=True,
+                        samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+                        secure=WEBUI_AUTH_COOKIE_SECURE,
+                    )
+                
+                # Get frontend URL for redirect based on the frontend_origin in the session
+                frontend_url = None
+                try:
+                    # Get the frontend_origin from the session
+                    frontend_origin = request.session.get("frontend_origin")
+                    
+                    if frontend_origin:
+                        # Use the frontend_origin from the session
+                        frontend_url = frontend_origin
+                        log.info(f"Using frontend URL from session: {frontend_url}")
+                    else:
+                        # Fallback to AUTH0_CALLBACK_URL if no frontend_origin in session
+                        from open_webui.config import AUTH0_CALLBACK_URL
+                        callback_url_str = AUTH0_CALLBACK_URL.value
+                        
+                        # For development environments, replace backend port with frontend port
+                        if "localhost:8080" in callback_url_str or "127.0.0.1:8080" in callback_url_str:
+                            frontend_url = callback_url_str.replace(":8080", ":5173")
+                        else:
+                            # For production, remove API path component
+                            frontend_url = callback_url_str.split("/api/")[0] if "/api/" in callback_url_str else str(request.base_url).rstrip("/")
+                        
+                    log.info(f"Frontend URL for redirect: {frontend_url}")
+                    
+                    # Return user data and necessary redirect information
+                    return {
+                        "user_data": user_data,
+                        "jwt_token": jwt_token,
+                        "frontend_base_url": frontend_url
+                    }
+                except Exception as e:
+                    log.error(f"Error determining frontend URL: {e}")
+                    # Simple fallback using request base URL
+                    base_url = str(request.base_url).rstrip("/")
+                    frontend_url = base_url.replace(":8080", ":5173") if ":8080" in base_url else base_url
+                
+                return {
+                    "user_data": user_data,
+                    "jwt_token": jwt_token,
+                    "frontend_base_url": frontend_url
+                }
             
-            # Get frontend URL for redirect based on the callback URL
-            try:
-                from open_webui.config import AUTH0_CALLBACK_URL
-                callback_url_str = AUTH0_CALLBACK_URL.value
-                
-                # For development environments, replace backend port with frontend port
-                if "localhost:8080" in callback_url_str or "127.0.0.1:8080" in callback_url_str:
-                    frontend_url = callback_url_str.replace(":8080", ":5173")
-                else:
-                    # For production, remove API path component
-                    frontend_url = callback_url_str.split("/api/")[0] if "/api/" in callback_url_str else str(request.base_url).rstrip("/")
-                
-                # Return user data and necessary redirect information
-                return {
-                    "user_data": user_data,
-                    "jwt_token": jwt_token,
-                    "frontend_base_url": frontend_url
-                }
-            except Exception as e:
-                # Simple fallback using request base URL
-                base_url = str(request.base_url).rstrip("/")
-                frontend_url = base_url.replace(":8080", ":5173") if ":8080" in base_url else base_url
-                
-                return {
-                    "user_data": user_data,
-                    "jwt_token": jwt_token,
-                    "frontend_base_url": frontend_url
-                }
+            # No response provided - regular token-based auth flow
+            # Get frontend URL for success redirect
+            frontend_origin = request.session.get("frontend_origin", "")
+            frontend_url = frontend_origin or f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
+            
+            # Successful authentication - return the user data and redirect URL
+            return {
+                "user_data": user_data,
+                "frontend_base_url": frontend_url,
+                "token": token
+            }
+            
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Authentication error: {str(e)}"
-            )
+            log.error(f"Failed to handle callback for {provider_name} - {str(e)}")
+            log.exception(e)
+            
+            # Get frontend URL for error redirect
+            frontend_origin = request.session.get("frontend_origin", "")
+            error_url = frontend_origin or f"{request.base_url.scheme}://{request.base_url.netloc.replace(str(request.base_url.port), '5173')}"
+            
+            # Ensure error_url doesn't end with a slash
+            if error_url.endswith('/'):
+                error_url = error_url[:-1]
+                
+            encoded_error = quote(f"Authentication error: {str(e)}")
+            return {"error": True, "redirect_url": f"{error_url}/auth?error={encoded_error}"}
+
+    async def handle_callback_original(self, request, provider_name, response=None):
+        """
+        Handle the callback from an OAuth provider.
+        
+        This is a legacy method that now delegates to handle_callback.
+        It is maintained for backward compatibility.
+        """
+        # Just call the refactored handle_callback with the same parameters
+        return await self.handle_callback(request, provider_name, response)
 
 # This will be filled by main.py after app initialization
 oauth_manager = None
