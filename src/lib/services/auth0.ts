@@ -6,8 +6,9 @@ const AUTH0_DOMAIN = 'channelai.us.auth0.com';
 const AUTH0_CLIENT_ID = 'cEewmmCzsdXlyMjYPaVL0R0oG5cUch8S';
 
 // Force consistent domain usage 
-// Note: In production, consider using an environment variable to configure this
-const PREFERRED_DOMAIN = 'localhost';  // or '127.0.0.1' based on Auth0 configuration
+// Use the actual domain in production, fallback to localhost for development
+const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const PREFERRED_DOMAIN = isDevelopment ? 'localhost' : window.location.hostname;
 
 let auth0Client: Auth0Client | null = null;
 
@@ -16,7 +17,7 @@ let auth0Client: Auth0Client | null = null;
  */
 const getConsistentReturnUrl = (): string => {
   // Get the current origin but ensure we use the preferred domain
-  const port = window.location.port ? `:${window.location.port}` : '';
+  const port = isDevelopment && window.location.port ? `:${window.location.port}` : '';
   const protocol = window.location.protocol;
   
   // Construct a consistent URL using the preferred domain
