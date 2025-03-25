@@ -14,76 +14,74 @@
 <!-- Use button instead of div for better accessibility when onClick is provided -->
 {#if onClick}
   <button
-    class="z-20 bg-transparent border-none p-0 m-0"
+    class="channel-logo-button z-20"
     on:click={onClick}
     on:keydown={handleKeyDown}
-    style="
-      position: relative;
-      width: 180px;
-      height: 40px;
-      cursor: pointer;
-      outline: none;
-    "
   >
     <img
       src="/auth/channel-logo.png"
       alt="Channel Logo"
-      style="
-        position: absolute;
-        top: 0px;
-        left: 0px;
-        width: 70%;
-        height: 70%;
-        object-fit: contain;
-      "
+      class="channel-logo-image"
     />
 
     <!-- Text fallback in case image doesn't load -->
     <div
-      style="
-        position: absolute;
-        top: 10px;
-        left: 20px;
-        opacity: 0; /* Hidden by default, will show if image fails */
-      "
-      class="text-xl font-bold"
+      class="text-xl font-bold channel-logo-text-fallback"
     >
       Channel
     </div>
   </button>
 {:else}
   <div
-    class="z-20"
-    style="
-      position: relative;
-      width: 180px;
-      height: 40px;
-    "
+    class="channel-logo-container z-20"
   >
     <img
       src="/auth/channel-logo.png"
       alt="Channel Logo"
-      style="
-        position: absolute;
-        top: 0px;
-        left: 0px;
-        width: 70%;
-        height: 70%;
-        object-fit: contain;
-      "
+      class="channel-logo-image"
     />
 
     <!-- Text fallback in case image doesn't load -->
     <div
-      style="
-        position: absolute;
-        top: 10px;
-        left: 20px;
-        opacity: 0; /* Hidden by default, will show if image fails */
-      "
-      class="text-xl font-bold"
+      class="text-xl font-bold channel-logo-text-fallback"
     >
       Channel
     </div>
   </div>
 {/if}
+
+<style>
+  .channel-logo-button {
+    position: relative;
+    width: 180px;
+    height: 40px;
+    cursor: pointer;
+    outline: none;
+    background-color: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .channel-logo-container {
+    position: relative;
+    width: 180px;
+    height: 40px;
+  }
+
+  .channel-logo-image {
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    width: 70%;
+    height: 70%;
+    object-fit: contain;
+  }
+
+  .channel-logo-text-fallback {
+    position: absolute;
+    top: 10px;
+    left: 20px;
+    opacity: 0; /* Hidden by default, will show if image fails */
+  }
+</style>

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { WEBUI_BASE_URL } from '$lib/constants';
   export let className = '';
   
   function handleAuth0Login() {

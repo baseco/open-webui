@@ -15,7 +15,6 @@
 	import VideoBackground from '$lib/components/auth/VideoBackground.svelte';
 	import FrostedCard from '$lib/components/auth/FrostedCard.svelte';
 	import ChannelLogo from '$lib/components/auth/ChannelLogo.svelte';
-	import Auth0Button from '$lib/components/auth/Auth0Button.svelte';
 	import FeatureSlider from '$lib/components/auth/FeatureSlider.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
