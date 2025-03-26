@@ -39,7 +39,7 @@
 			align="start"
 			transition={(e) => fade(e, { duration: 100 })}
 		>
-			<!-- Settings button hidden as per WEB-53
+			{#if role === 'admin'}
 			<button
 				class="flex rounded-md py-2 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition"
 				on:click={async () => {
@@ -74,7 +74,7 @@
 				</div>
 				<div class=" self-center truncate">{$i18n.t('Settings')}</div>
 			</button>
-			-->
+			{/if}
 
 			<button
 				class="flex rounded-md py-2 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition"
