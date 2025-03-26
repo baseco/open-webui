@@ -155,78 +155,81 @@
 </svelte:head>
 
 {#if loaded}
-	<div class="flex flex-col md:flex-row min-h-screen w-full font-primary">
-		<!-- Channel Logo positioned consistently across all screen sizes -->
-		<div class="absolute top-8 left-8 z-20">
-			<ChannelLogo onClick={() => goto('/')} />
-		</div>
-
-		<!-- Left side - Login form -->
-		<div class="relative w-full md:w-1/2 flex flex-col items-center justify-center p-8 min-h-[100vh] md:min-h-screen">
-			<div class="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
-				<VideoBackground />
+	<!-- Main container where scrolling happens -->
+	<div class="h-[100dvh] overflow-auto">
+		<!-- Inner content wrapper that allows vertical stacking on mobile -->
+		<div class="w-full min-h-[100dvh] flex flex-col md:flex-row">
+			<!-- Logo positioned consistently across all screen sizes -->
+			<div class="fixed top-8 left-8 z-20">
+				<ChannelLogo onClick={() => goto('/')} />
 			</div>
 
-			<FrostedCard className="max-w-md w-full mt-16 md:mt-0">
-				<div class="relative p-6">
-					<div class="text-left mb-6">
-						<h1 class="text-3xl font-bold">{$WEBUI_NAME}</h1>
-						<p class="mt-4 text-xs text-gray-600" style="font-weight: 300;">
-							{$i18n.t('Connect with all the top AI assistants in one place.')}
-						</p>
-					</div>
-
-					<div class="space-y-4">
-						{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
-							<div class="flex items-center justify-center gap-3 text-xl text-center font-semibold">
-								<div>
-									{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
-								</div>
-								<div>
-									<Spinner />
-								</div>
-							</div>
-						{:else if $config?.oauth?.providers?.auth0}
-							<!-- Single Sign In Button -->
-							<button 
-								class="w-full bg-black hover:bg-black/90 text-white rounded-full font-medium py-2.5 px-4 flex justify-center items-center"
-								on:click={() => {
-									// Create the Auth0 login URL with the frontend origin and port explicitly encoded in the state
-									const frontendOrigin = encodeURIComponent(window.location.origin);
-									
-									// Set the returnTo URL to the current origin + /auth to ensure we return to the frontend
-									const returnToUrl = encodeURIComponent(`${window.location.origin}/auth`);
-									
-									// Redirect to the Auth0 login endpoint with the frontend origin
-									window.location.href = `/api/v1/auths/oauth/auth0/login?frontendOrigin=${frontendOrigin}&returnTo=${returnToUrl}`;
-								}}
-							>
-								Sign In
-							</button>
-						{/if}
-
-						{#if authError}
-							<div class="text-red-500 text-xs mt-2 text-center">
-								{authError}
-							</div>
-						{/if}
-
-						<p class="text-xs text-center text-gray-600 mt-4">
-							Sign up via the Channel mobile app
-						</p>
-					</div>
+			<!-- Left pane - Login form with video background -->
+			<div class="w-full md:w-1/2 h-[100dvh] flex items-center justify-center relative">
+				<div class="absolute inset-0 overflow-hidden -z-10">
+					<VideoBackground />
 				</div>
-			</FrostedCard>
-		</div>
 
-		<!-- Right side - Feature showcase -->
-		<div class="w-full md:w-1/2 bg-[#E4E6E9] min-h-[80vh] md:min-h-screen flex items-center justify-center p-4">
-			<!-- Custom width for right panel -->
-			<div class="w-full max-w-[52rem] overflow-hidden rounded-lg bg-white/30 backdrop-blur-xl backdrop-filter shadow-lg border border-white/20 h-[80vh] md:h-[96vh] relative">
-				<div class="p-8 h-full flex flex-col items-center justify-center">
-					<div class="flex-grow w-full flex items-center justify-center">
-						<!-- Feature slider component -->
-						<FeatureSlider slides={featureSlides} />
+				<FrostedCard className="w-full max-w-md mx-6">
+					<div class="p-6">
+						<div class="text-left mb-6">
+							<h1 class="text-3xl font-bold">{$WEBUI_NAME}</h1>
+							<p class="mt-4 text-xs text-gray-600" style="font-weight: 300;">
+								{$i18n.t('Connect with all the top AI assistants in one place.')}
+							</p>
+						</div>
+
+						<div class="space-y-4">
+							{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
+								<div class="flex items-center justify-center gap-3 text-xl text-center font-semibold">
+									<div>
+										{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+									</div>
+									<div>
+										<Spinner />
+									</div>
+								</div>
+							{:else if $config?.oauth?.providers?.auth0}
+								<!-- Single Sign In Button -->
+								<button 
+									class="w-full bg-black hover:bg-black/90 text-white rounded-full font-medium py-2.5 px-4 flex justify-center items-center"
+									on:click={() => {
+										// Create the Auth0 login URL with the frontend origin and port explicitly encoded in the state
+										const frontendOrigin = encodeURIComponent(window.location.origin);
+										
+										// Set the returnTo URL to the current origin + /auth to ensure we return to the frontend
+										const returnToUrl = encodeURIComponent(`${window.location.origin}/auth`);
+										
+										// Redirect to the Auth0 login endpoint with the frontend origin
+										window.location.href = `/api/v1/auths/oauth/auth0/login?frontendOrigin=${frontendOrigin}&returnTo=${returnToUrl}`;
+									}}
+								>
+									Sign In
+								</button>
+							{/if}
+
+							{#if authError}
+								<div class="text-red-500 text-xs mt-2 text-center">
+									{authError}
+								</div>
+							{/if}
+
+							<p class="text-xs text-center text-gray-600 mt-4">
+								Sign up via the Channel mobile app
+							</p>
+						</div>
+					</div>
+				</FrostedCard>
+			</div>
+
+			<!-- Right pane - Feature showcase -->
+			<div class="w-full md:w-1/2 bg-[#E4E6E9] h-[100dvh] flex items-center justify-center p-6">
+				<div class="w-full max-w-[52rem] overflow-hidden rounded-lg bg-white/30 backdrop-blur-xl backdrop-filter shadow-lg border border-white/20 h-[85vh] relative">
+					<div class="p-8 h-full flex flex-col items-center justify-center">
+						<div class="flex-grow w-full flex items-center justify-center">
+							<!-- Feature slider component -->
+							<FeatureSlider slides={featureSlides} />
+						</div>
 					</div>
 				</div>
 			</div>
