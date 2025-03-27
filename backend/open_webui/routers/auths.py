@@ -993,8 +993,13 @@ async def signout(request: Request, response: Response):
 ############################
 
 
-@router.post("/add", response_model=UserResponse)
+@router.post("/add", response_model=SigninResponse)
 async def add_user(form_data: AddUserForm, user=Depends(get_admin_user)):
+    if not validate_email_format(form_data.email.lower()):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
+        )
+
     if Users.get_user_by_email(form_data.email.lower()):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
@@ -1005,11 +1010,27 @@ async def add_user(form_data: AddUserForm, user=Depends(get_admin_user)):
             log.info(f"Setting default role '{form_data.role}' for manually added user {form_data.email}")
 
         hashed = get_password_hash(form_data.password)
-        new_user = Auths.insert_new_auth(
-            form_data.email.lower(), hashed, form_data.name, "", form_data.role
+        user = Auths.insert_new_auth(
+            form_data.email.lower(),
+            hashed,
+            form_data.name,
+            form_data.profile_image_url,
+            form_data.role,
         )
 
-        return new_user
+        if user:
+            token = create_token(data={"id": user.id})
+            return {
+                "token": token,
+                "token_type": "Bearer",
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "role": user.role,
+                "profile_image_url": user.profile_image_url,
+            }
+        else:
+            raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
     except Exception as err:
         raise HTTPException(500, detail=ERROR_MESSAGES.DEFAULT(err))
 
