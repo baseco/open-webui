@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import lottie from 'lottie-web';
+  import { onMount } from 'svelte';
   import { browser } from '$app/environment';
 
   // Props for customization
@@ -10,7 +9,6 @@
   export let height: string = '40px';
 
   let animationContainer: HTMLElement;
-  let animationInstance: any = null;
   let animationLoaded = false;
 
   // Handle keyboard accessibility 
@@ -21,69 +19,57 @@
     }
   }
 
-  async function loadAnimation() {
+  // Initialize or update the lottie-player element
+  function setupLottiePlayer() {
     if (!browser || !animationContainer) return;
     
-    if (animationInstance) {
-      animationInstance.destroy();
-      animationInstance = null;
-    }
-
     try {
       // Choose the animation based on the theme
       const animationPath = isDarkMode 
         ? '/auth/animations/logo_mark-white.json' 
         : '/auth/animations/logo_mark-black.json';
       
-      console.log(`Loading animation from ${animationPath}, isDarkMode: ${isDarkMode}`);
+      // Clear container first
+      animationContainer.innerHTML = '';
       
-      // Create animation
-      animationInstance = lottie.loadAnimation({
-        container: animationContainer,
-        renderer: 'svg',
-        loop: true,
-        autoplay: true,
-        path: animationPath
+      // Create lottie-player element
+      const player = document.createElement('lottie-player');
+      player.setAttribute('src', animationPath);
+      player.setAttribute('background', 'transparent');
+      player.setAttribute('speed', '1');
+      player.setAttribute('loop', '');
+      player.setAttribute('autoplay', '');
+      player.style.width = '100%';
+      player.style.height = '100%';
+      
+      // Add error handler
+      player.addEventListener('error', (e) => {
+        console.error('Lottie player error:', e);
+        animationLoaded = false;
       });
-
-      // Add event listeners
-      animationInstance.addEventListener('DOMLoaded', () => {
-        console.log('Animation DOM loaded');
+      
+      // Add load handler
+      player.addEventListener('load', () => {
         animationLoaded = true;
       });
-
-      animationInstance.addEventListener('data_ready', () => {
-        console.log('Animation data ready');
-      });
-
-      animationInstance.addEventListener('data_failed', (error: any) => {
-        console.error('Animation data failed to load:', error);
-      });
-
-      animationInstance.addEventListener('error', (error: any) => {
-        console.error('Animation error:', error);
-      });
+      
+      // Add to DOM
+      animationContainer.appendChild(player);
+      
     } catch (error) {
       console.error('Error setting up animation:', error);
+      animationLoaded = false;
     }
   }
 
   // Watch for theme changes and reload animation
   $: if (browser && animationContainer && isDarkMode !== undefined) {
-    console.log(`Theme changed to ${isDarkMode ? 'dark' : 'light'}`);
-    loadAnimation();
+    setupLottiePlayer();
   }
 
   onMount(() => {
     if (browser) {
-      loadAnimation();
-    }
-  });
-
-  onDestroy(() => {
-    if (animationInstance) {
-      animationInstance.destroy();
-      animationInstance = null;
+      setupLottiePlayer();
     }
   });
 </script>
