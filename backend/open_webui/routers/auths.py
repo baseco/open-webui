@@ -69,6 +69,24 @@ router = APIRouter()
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
+# Helper function to ensure we get the most current DEFAULT_USER_ROLE value
+def get_current_default_user_role(config):
+    """
+    Get the current DEFAULT_USER_ROLE from config, ensuring we have the most up-to-date value.
+    Falls back to 'user' if there's any issue retrieving the value.
+    """
+    try:
+        role = config.DEFAULT_USER_ROLE
+        # Validate that the role is one of the acceptable values
+        if role not in ["pending", "user", "admin"]:
+            log.warning(f"Invalid DEFAULT_USER_ROLE value: {role}, falling back to 'user'")
+            return "user"
+        return role
+    except Exception as e:
+        log.error(f"Error retrieving DEFAULT_USER_ROLE: {e}")
+        # Default to 'user' as a safe fallback
+        return "user"
+
 ############################
 # GetSessionUser
 ############################
@@ -855,9 +873,15 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
     try:
+        # Log the current DEFAULT_USER_ROLE setting before assigning it
+        default_role = get_current_default_user_role(request.app.state.config)
+        log.info(f"Current DEFAULT_USER_ROLE setting: {default_role}")
+
         role = (
-            "admin" if user_count == 0 else request.app.state.config.DEFAULT_USER_ROLE
+            "admin" if user_count == 0 else default_role
         )
+        
+        log.info(f"Assigning role '{role}' to new user {form_data.email}")
 
         if user_count == 0:
             # Disable signup after the first user is created
@@ -969,39 +993,23 @@ async def signout(request: Request, response: Response):
 ############################
 
 
-@router.post("/add", response_model=SigninResponse)
+@router.post("/add", response_model=UserResponse)
 async def add_user(form_data: AddUserForm, user=Depends(get_admin_user)):
-    if not validate_email_format(form_data.email.lower()):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
-        )
-
     if Users.get_user_by_email(form_data.email.lower()):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
     try:
+        # If no specific role is provided, use our default role helper
+        if not form_data.role or form_data.role not in ["pending", "user", "admin"]:
+            form_data.role = get_current_default_user_role(user.request.app.state.config)
+            log.info(f"Setting default role '{form_data.role}' for manually added user {form_data.email}")
+
         hashed = get_password_hash(form_data.password)
-        user = Auths.insert_new_auth(
-            form_data.email.lower(),
-            hashed,
-            form_data.name,
-            form_data.profile_image_url,
-            form_data.role,
+        new_user = Auths.insert_new_auth(
+            form_data.email.lower(), hashed, form_data.name, "", form_data.role
         )
 
-        if user:
-            token = create_token(data={"id": user.id})
-            return {
-                "token": token,
-                "token_type": "Bearer",
-                "id": user.id,
-                "email": user.email,
-                "name": user.name,
-                "role": user.role,
-                "profile_image_url": user.profile_image_url,
-            }
-        else:
-            raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
+        return new_user
     except Exception as err:
         raise HTTPException(500, detail=ERROR_MESSAGES.DEFAULT(err))
 
