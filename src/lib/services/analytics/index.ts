@@ -7,8 +7,11 @@ import { Types } from '@amplitude/analytics-browser';
  */
 export function initializeAnalytics(): boolean {
   try {
+    // Get the environment from the environment variable, with a fallback to 'nexusdev'
+    const amplitudeEnvironment = import.meta.env.VITE_AMPLITUDE_ENVIRONMENT || 'nexusdev';
+    
     ampli.load({
-      environment: 'nexus',
+      environment: amplitudeEnvironment as any, // Cast to any to avoid TypeScript error
       // Enable debug mode in development
       client: {
         configuration: {
