@@ -250,7 +250,7 @@
 {:else}
 	<div class="flex items-center justify-center min-h-screen bg-white dark:bg-black">
 		<div class="flex flex-col items-center">
-			<AnimatedLogo isDarkMode={isDarkMode} />
+			<AnimatedLogo />
 			<div class="mt-4">
 				<Spinner />
 			</div>

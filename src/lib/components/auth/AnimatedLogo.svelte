@@ -4,7 +4,6 @@
 
   // Props for customization
   export let onClick: (() => void) | undefined = undefined;
-  export let isDarkMode: boolean = false;
   export let width: string = '180px';
   export let height: string = '40px';
 
@@ -24,8 +23,9 @@
     if (!browser || !animationContainer) return;
     
     try {
-      // Choose the animation based on the theme
-      const animationPath = isDarkMode 
+      // Detect theme directly like the splash screen does
+      const isDark = document.documentElement.classList.contains('dark');
+      const animationPath = isDark 
         ? '/auth/animations/logo_mark-white.json' 
         : '/auth/animations/logo_mark-black.json';
       
@@ -62,14 +62,30 @@
     }
   }
 
-  // Watch for theme changes and reload animation
-  $: if (browser && animationContainer && isDarkMode !== undefined) {
-    setupLottiePlayer();
+  // Setup observer to detect theme changes
+  function setupThemeObserver() {
+    if (!browser) return;
+    
+    // Watch for theme changes using MutationObserver
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'class') {
+          setupLottiePlayer();
+        }
+      });
+    });
+    
+    // Start observing the document element for class changes
+    observer.observe(document.documentElement, { attributes: true });
+    
+    return () => observer.disconnect();
   }
 
   onMount(() => {
     if (browser) {
       setupLottiePlayer();
+      const cleanup = setupThemeObserver();
+      return cleanup;
     }
   });
 </script>
