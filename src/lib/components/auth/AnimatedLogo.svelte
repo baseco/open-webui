@@ -22,78 +22,63 @@
   function setupLottiePlayer() {
     if (!browser || !animationContainer) return;
     
-    try {
-      // Detect theme directly like the splash screen does
-      const isDark = document.documentElement.classList.contains('dark');
-      const animationPath = isDark 
-        ? '/auth/animations/logo_mark-white.json' 
-        : '/auth/animations/logo_mark-black.json';
-      
-      // Clear container first
-      animationContainer.innerHTML = '';
-      
-      // Create lottie-player element
-      const player = document.createElement('lottie-player');
-      player.setAttribute('src', animationPath);
-      player.setAttribute('background', 'transparent');
-      player.setAttribute('speed', '1');
-      player.setAttribute('loop', '');
-      player.setAttribute('autoplay', '');
-      player.style.width = '100%';
-      player.style.height = '100%';
-      
-      // Add error handler
-      player.addEventListener('error', (e) => {
-        console.error('Lottie player error:', e);
-        animationLoaded = false;
-      });
-      
-      // Add load handler
-      player.addEventListener('load', () => {
-        animationLoaded = true;
-      });
-      
-      // Add to DOM
-      animationContainer.appendChild(player);
-      
-    } catch (error) {
-      console.error('Error setting up animation:', error);
-      animationLoaded = false;
-    }
-  }
-
-  // Setup observer to detect theme changes
-  function setupThemeObserver() {
-    if (!browser) return;
+    // Clear container first
+    animationContainer.innerHTML = '';
     
-    // Watch for theme changes using MutationObserver
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.attributeName === 'class') {
-          setupLottiePlayer();
-        }
-      });
+    // Detect theme
+    const isDark = document.documentElement.classList.contains('dark');
+    const animationPath = isDark 
+      ? '/auth/animations/logo_mark-white.json' 
+      : '/auth/animations/logo_mark-black.json';
+    
+    // Create and configure lottie-player element
+    const player = document.createElement('lottie-player');
+    Object.assign(player, {
+      src: animationPath,
+      background: 'transparent',
+      speed: 1,
+      loop: true,
+      autoplay: true
+    });
+    player.style.cssText = 'width: 100%; height: 100%;';
+    
+    // Set up event listeners
+    player.addEventListener('error', () => {
+      animationLoaded = false;
     });
     
-    // Start observing the document element for class changes
-    observer.observe(document.documentElement, { attributes: true });
+    player.addEventListener('load', () => {
+      animationLoaded = true;
+    });
     
-    return () => observer.disconnect();
+    // Add to DOM
+    animationContainer.appendChild(player);
   }
 
   onMount(() => {
     if (browser) {
+      // Initial setup
       setupLottiePlayer();
-      const cleanup = setupThemeObserver();
-      return cleanup;
+      
+      // Watch for theme changes
+      const observer = new MutationObserver(() => {
+        setupLottiePlayer();
+      });
+      
+      observer.observe(document.documentElement, { 
+        attributes: true,
+        attributeFilter: ['class'] 
+      });
+      
+      return () => observer.disconnect();
     }
   });
 </script>
 
-<!-- Use button for better accessibility when onClick is provided -->
+<!-- Common template structure for both button and div variants -->
 {#if onClick}
   <button
-    class="animated-logo-button"
+    class="animated-logo-container"
     on:click={onClick}
     on:keydown={handleKeyDown}
     style="width: {width}; height: {height};"
@@ -126,7 +111,6 @@
 {/if}
 
 <style>
-  .animated-logo-button,
   .animated-logo-container {
     position: relative;
     display: flex;
@@ -134,7 +118,8 @@
     justify-content: center;
   }
 
-  .animated-logo-button {
+  /* Additional styles for button variant */
+  button.animated-logo-container {
     cursor: pointer;
     outline: none;
     background-color: transparent;
