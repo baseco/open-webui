@@ -547,7 +547,12 @@
 
 			await loadingProgress.set(100);
 
-			document.getElementById('splash-screen')?.remove();
+			// Check for debug flag before removing splash screen
+			if (!window.debugSplash) {
+				document.getElementById('splash-screen')?.remove();
+			} else {
+				console.log("Splash screen kept visible due to debug_splash flag");
+			}
 
 			const audio = new Audio(`/audio/greeting.mp3`);
 			const playAudio = () => {
@@ -559,7 +564,12 @@
 
 			loaded = true;
 		} else {
-			document.getElementById('splash-screen')?.remove();
+			// Check for debug flag before removing splash screen
+			if (!window.debugSplash) {
+				document.getElementById('splash-screen')?.remove();
+			} else {
+				console.log("Splash screen kept visible due to debug_splash flag");
+			}
 			loaded = true;
 		}
 

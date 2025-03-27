@@ -9,6 +9,15 @@
       onClick();
     }
   }
+  
+  // Handle image error
+  function handleImageError(event: Event) {
+    const img = event.target as HTMLImageElement;
+    if (img && img.nextElementSibling) {
+      img.style.display = 'none';
+      (img.nextElementSibling as HTMLElement).style.opacity = '1';
+    }
+  }
 </script>
 
 <!-- Use button instead of div for better accessibility when onClick is provided -->
@@ -22,6 +31,7 @@
       src="/auth/channel-logo.png"
       alt="Channel Logo"
       class="channel-logo-image"
+      on:error={handleImageError}
     />
 
     <!-- Text fallback in case image doesn't load -->
@@ -39,6 +49,7 @@
       src="/auth/channel-logo.png"
       alt="Channel Logo"
       class="channel-logo-image"
+      on:error={handleImageError}
     />
 
     <!-- Text fallback in case image doesn't load -->
@@ -76,6 +87,7 @@
     width: 70%;
     height: 70%;
     object-fit: contain;
+    display: block;
   }
 
   .channel-logo-text-fallback {

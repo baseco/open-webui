@@ -15,6 +15,7 @@
 	import VideoBackground from '$lib/components/auth/VideoBackground.svelte';
 	import FrostedCard from '$lib/components/auth/FrostedCard.svelte';
 	import ChannelLogo from '$lib/components/auth/ChannelLogo.svelte';
+	import AnimatedLogo from '$lib/components/auth/AnimatedLogo.svelte';
 	import FeatureSlider from '$lib/components/auth/FeatureSlider.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
@@ -22,6 +23,7 @@
 
 	let loaded = false;
 	let authError: string | null = null;
+	let isDarkMode = false;
 	
 	// Feature slides data with more interesting Channel-related content
 	const featureSlides = [
@@ -143,6 +145,16 @@
 			authError = null;
 		}
 		
+		// Detect dark mode based on user preference
+		const prefersDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+		isDarkMode = prefersDarkMode;
+		
+		// Listen for theme changes
+		const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+		darkModeMediaQuery.addEventListener('change', (e) => {
+			isDarkMode = e.matches;
+		});
+		
 		await checkOauthCallback();
 		loaded = true;
 	});
@@ -237,6 +249,11 @@
 	</div>
 {:else}
 	<div class="flex items-center justify-center min-h-screen bg-white dark:bg-black">
-		<Spinner />
+		<div class="flex flex-col items-center">
+			<AnimatedLogo />
+			<div class="mt-4">
+				<Spinner />
+			</div>
+		</div>
 	</div>
 {/if}
