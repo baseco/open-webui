@@ -27,13 +27,16 @@
 		<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
 		<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap" rel="stylesheet">
 		<script src="/static/loader.js" defer></script>
+		
+		<!-- Add Lottie player web component (much more reliable) -->
+		<script src="https://unpkg.com/@lottiefiles/lottie-player@1.7.1/dist/lottie-player.js"></script>
 
 		<script>
 			function resizeIframe(obj) {
 				obj.style.height = obj.contentWindow.document.documentElement.scrollHeight + 'px';
 			}
 		</script>
-
+		
 		<script>
 			// On page load or when changing themes, best to add inline in `head` to avoid FOUC
 			(() => {
@@ -80,27 +83,30 @@
 					}
 				});
 
-				function setSplashImage() {
-					const logo = document.getElementById('logo');
-					const isDarkMode = document.documentElement.classList.contains('dark');
-
-					if (isDarkMode) {
-						const darkImage = new Image();
-						darkImage.src = '/static/splash-dark.png';
-
-						darkImage.onload = () => {
-							logo.src = '/static/splash-dark.png';
-							logo.style.filter = ''; // Ensure no inversion is applied if splash-dark.png exists
-						};
-
-						darkImage.onerror = () => {
-							logo.style.filter = 'invert(1)'; // Invert image if splash-dark.png is missing
-						};
-					}
+				// Add debug flag for splash screen testing
+				const urlParams = new URLSearchParams(window.location.search);
+				if (urlParams.get('debug_splash') === 'true') {
+					window.debugSplash = true;
+					console.log('Splash screen debug mode activated - splash will remain visible');
 				}
 
-				// Runs after classes are assigned
-				window.onload = setSplashImage;
+				// Hide the her-specific elements by default
+				document.addEventListener('DOMContentLoaded', function() {
+					const logoHer = document.getElementById('logo-her');
+					const progressBackground = document.getElementById('progress-background');
+					const progressBar = document.getElementById('progress-bar');
+					
+					if (logoHer) logoHer.style.display = 'none';
+					if (progressBackground) progressBackground.style.display = 'none';
+					if (progressBar) progressBar.style.display = 'none';
+					
+					// Only show her elements if in her theme
+					if (document.documentElement.classList.contains('her')) {
+						if (logoHer) logoHer.style.display = 'block';
+						if (progressBackground) progressBackground.style.display = 'block';
+						if (progressBar) progressBar.style.display = 'block';
+					}
+				});
 			})();
 		</script>
 
@@ -122,19 +128,51 @@
 				}
 			</style>
 
-			<img
-				id="logo"
+			<div
+				id="logo-container"
 				style="
 					position: absolute;
-					width: auto;
-					height: 6rem;
+					width: 10rem;
+					height: 10rem;
 					top: 44%;
 					left: 50%;
 					transform: translateX(-50%);
+					z-index: 101;
 				"
-				src="/static/splash.png"
-			/>
-
+			>
+				<!-- Use lottie-player web component for reliability -->
+				<script>
+					document.addEventListener('DOMContentLoaded', function() {
+						const isDark = document.documentElement.classList.contains('dark');
+						const animPath = isDark ? '/auth/animations/logo_mark-white.json' : '/auth/animations/logo_mark-black.json';
+						
+						// Create lottie-player element
+						const container = document.getElementById('logo-container');
+						container.innerHTML = '';
+						
+						const player = document.createElement('lottie-player');
+						player.setAttribute('src', animPath);
+						player.setAttribute('background', 'transparent');
+						player.setAttribute('speed', '1');
+						player.setAttribute('loop', '');
+						player.setAttribute('autoplay', '');
+						player.style.width = '100%';
+						player.style.height = '100%';
+						
+						container.appendChild(player);
+						
+						// Add error handler
+						player.addEventListener('error', function(e) {
+							console.error('Lottie player error:', e);
+							container.innerHTML = '<img src="/static/splash.png" alt="Splash screen logo" style="width:100%; height:100%; object-fit:contain;">';
+						});
+					});
+				</script>
+				
+				<!-- Fallback content if script fails to run -->
+				<img src="/static/splash.png" alt="Splash screen logo" style="width:100%; height:100%; object-fit:contain;">
+			</div>
+			
 			<div
 				style="
 					position: absolute;
@@ -182,10 +220,6 @@
 					></div>
 				</div>
 			</div>
-
-			<!-- <span style="position: absolute; bottom: 32px; left: 50%; margin: -36px 0 0 -36px">
-				Footer content
-			</span> -->
 		</div>
 	</body>
 </html>
@@ -199,60 +233,23 @@
 		background: #fff;
 	}
 
-	html.dark #splash-screen {
-		background: #000;
+	.dark #splash-screen {
+		background: #171717;
 	}
 
-	html.her #splash-screen {
-		background: #983724;
-	}
-
-	#logo-her {
-		display: none;
-	}
-
-	#progress-background {
-		display: none;
-	}
-
-	#progress-bar {
-		display: none;
-	}
-
-	html.her #logo {
-		display: none;
-	}
-
-	html.her #logo-her {
-		display: block;
-		filter: invert(1);
-	}
-
-	html.her #progress-background {
-		display: block;
-	}
-
-	html.her #progress-bar {
-		display: block;
-	}
-
-	@media (max-width: 24rem) {
-		html.her #progress-background {
-			display: none;
+	@keyframes pulse-animation {
+		0% {
+			opacity: 1;
 		}
-
-		html.her #progress-bar {
-			display: none;
-		}
-	}
-
-	@keyframes pulse {
 		50% {
-			opacity: 0.65;
+			opacity: 0.1;
+		}
+		100% {
+			opacity: 1;
 		}
 	}
 
 	.animate-pulse-fast {
-		animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+		animation: pulse-animation 1.7s infinite;
 	}
 </style>
