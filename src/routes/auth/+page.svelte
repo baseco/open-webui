@@ -137,11 +137,30 @@
 		const logoutParam = querystringValue('logout');
 		if (logoutParam === 'true') {
 			console.log('Forced logout detected, clearing auth data');
+			// Clear all auth-related data
 			localStorage.removeItem('token');
-			// Also clear any other auth-related data that might be in localStorage
 			localStorage.removeItem('oauth_id_token');
+			
+			// Reset the user store
 			await user.set(undefined);
-			toast.success(i18n.t('You have been logged out'));
+			
+			// Show success message
+			toast.success('You have been logged out');
+			
+			// Clean up the URL to remove the logout parameter
+			// This prevents reload loops if user refreshes the page
+			const url = new URL(window.location.href);
+			url.searchParams.delete('logout');
+			window.history.replaceState({}, '', url);
+			
+			// Force reload the page to ensure a clean state
+			// But only after a brief timeout to allow toast to show
+			setTimeout(() => {
+				window.location.href = '/auth';
+			}, 500);
+			
+			// Return early to prevent other initialization
+			return;
 		}
 		
 		if ($user !== undefined) {
