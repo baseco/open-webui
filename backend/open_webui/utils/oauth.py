@@ -98,7 +98,9 @@ class OAuthManager:
             oauth_admin_roles = auth_manager_config.OAUTH_ADMIN_ROLES
             oauth_roles = None
             # Default/fallback role if no matching roles are found
-            role = get_current_default_user_role(auth_manager_config)
+            # Hard-code role to 'user' instead of using potentially broken config
+            role = "user"
+            log.info(f"OAuth: Setting default role 'user' for new user")
 
             # Next block extracts the roles from the user data, accepting nested claims of any depth
             if oauth_claim and oauth_allowed_roles and oauth_admin_roles:
@@ -131,7 +133,9 @@ class OAuthManager:
         else:
             if not user:
                 # If role management is disabled, use the default role for new users
-                role = get_current_default_user_role(auth_manager_config)
+                # Hard-code role to 'user' instead of using potentially broken config
+                role = "user"
+                log.info(f"OAuth: Setting default role 'user' for new user")
             else:
                 # If role management is disabled, use the existing role for existing users
                 role = user.role
