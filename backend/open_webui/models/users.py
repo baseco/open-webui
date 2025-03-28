@@ -105,6 +105,11 @@ class UsersTable:
         oauth_sub: Optional[str] = None,
     ) -> Optional[UserModel]:
         with get_db() as db:
+            # Force "user" role for all new users unless they're specifically set as "admin"
+            # This prevents users from being stuck in "pending" status
+            if role != "admin":
+                role = "user"
+                
             user = UserModel(
                 **{
                     "id": id,
