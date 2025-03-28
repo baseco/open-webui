@@ -19,7 +19,12 @@
 	import FeatureSlider from '$lib/components/auth/FeatureSlider.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
-	const i18n = getContext('i18n');
+	// Properly type the i18n context
+	type I18n = {
+		t: (key: string, params?: Record<string, string>) => string;
+	};
+	
+	const i18n = getContext<I18n>('i18n');
 
 	let loaded = false;
 	let authError: string | null = null;
@@ -58,7 +63,7 @@
 	const setSessionUser = async (sessionUser) => {
 		if (sessionUser) {
 			console.log(sessionUser);
-			toast.success($i18n.t(`You're now logged in.`));
+			toast.success(i18n.t(`You're now logged in.`));
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
 			}
@@ -128,6 +133,17 @@
 	};
 
 	onMount(async () => {
+		// Check for logout parameter first - this will force a logout regardless of current state
+		const logoutParam = querystringValue('logout');
+		if (logoutParam === 'true') {
+			console.log('Forced logout detected, clearing auth data');
+			localStorage.removeItem('token');
+			// Also clear any other auth-related data that might be in localStorage
+			localStorage.removeItem('oauth_id_token');
+			await user.set(undefined);
+			toast.success(i18n.t('You have been logged out'));
+		}
+		
 		if ($user !== undefined) {
 			await goto('/');
 		}
@@ -187,7 +203,7 @@
 						<div class="text-left mb-6">
 							<h1 class="text-3xl font-bold">{$WEBUI_NAME}</h1>
 							<p class="mt-4 text-xs text-gray-600" style="font-weight: 300;">
-								{$i18n.t('Connect with all the top AI assistants in one place.')}
+								{i18n.t('Connect with all the top AI assistants in one place.')}
 							</p>
 						</div>
 
@@ -195,7 +211,7 @@
 							{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
 								<div class="flex items-center justify-center gap-3 text-xl text-center font-semibold">
 									<div>
-										{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+										{i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
 									</div>
 									<div>
 										<Spinner />
