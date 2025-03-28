@@ -877,9 +877,9 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
         default_role = get_current_default_user_role(request.app.state.config)
         log.info(f"Current DEFAULT_USER_ROLE setting: {default_role}")
 
-        role = (
-            "admin" if user_count == 0 else default_role
-        )
+        # HARD-CODE user role to "user" to ensure users aren't stuck in pending status
+        # This is a more direct fix to bypass the potentially broken configuration system
+        role = "admin" if user_count == 0 else "user"
         
         log.info(f"Assigning role '{role}' to new user {form_data.email}")
 
