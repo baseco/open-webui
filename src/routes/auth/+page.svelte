@@ -63,7 +63,7 @@
 	const setSessionUser = async (sessionUser) => {
 		if (sessionUser) {
 			console.log(sessionUser);
-			toast.success(i18n.t(`You're now logged in.`));
+			toast.success('You\'re now logged in.');
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
 			}
@@ -222,7 +222,7 @@
 						<div class="text-left mb-6">
 							<h1 class="text-3xl font-bold">{$WEBUI_NAME}</h1>
 							<p class="mt-4 text-xs text-gray-600" style="font-weight: 300;">
-								{i18n.t('Connect with all the top AI assistants in one place.')}
+								Connect with all the top AI assistants in one place.
 							</p>
 						</div>
 
@@ -230,7 +230,7 @@
 							{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
 								<div class="flex items-center justify-center gap-3 text-xl text-center font-semibold">
 									<div>
-										{i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+										Signing in to {$WEBUI_NAME}
 									</div>
 									<div>
 										<Spinner />
@@ -251,7 +251,7 @@
 										window.location.href = `/api/v1/auths/oauth/auth0/login?frontendOrigin=${frontendOrigin}&returnTo=${returnToUrl}`;
 									}}
 								>
-									Sign In
+									Sign in
 								</button>
 							{/if}
 
@@ -262,7 +262,7 @@
 							{/if}
 
 							<p class="text-xs text-center text-gray-600 mt-4">
-								Sign up via the Channel mobile app
+								Sign up via mobile app
 							</p>
 						</div>
 					</div>

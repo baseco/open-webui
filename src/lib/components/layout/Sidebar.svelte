@@ -520,10 +520,10 @@
 				<div class="flex items-center">
 					<div class="self-center mx-1.5">
 						<img
-							crossorigin="anonymous"
-							src="{WEBUI_BASE_URL}/static/favicon.png"
-							class=" size-5 -translate-x-1.5 rounded-full"
-							alt="logo"
+							src={`${WEBUI_BASE_URL}/static/favicon.png`}
+							class="max-w-[30px] object-cover rounded-full"
+							alt="Product logo"
+							draggable="false"
 						/>
 					</div>
 					<div class=" self-center font-medium text-sm text-gray-850 dark:text-white font-primary">
@@ -562,6 +562,7 @@
 				</a>
 			</div>
 		{/if} -->
+
 
 		{#if $user?.role === 'admin'}
 			<div class="px-1.5 flex justify-center text-gray-800 dark:text-gray-200">
@@ -899,11 +900,15 @@
 								showDropdown = !showDropdown;
 							}}
 						>
-							<div class=" self-center mr-3">
+							<div class="self-center mr-3">
+								<!-- Debug info -->
+								<pre class="hidden">Debug: {JSON.stringify($user, null, 2)}</pre>
+								
 								<img
-									src={$user.profile_image_url}
-									class=" max-w-[30px] object-cover rounded-full"
+									src="/user.png"
+									class="max-w-[30px] object-cover rounded-full"
 									alt="User profile"
+									draggable="false"
 								/>
 							</div>
 							<div class=" self-center font-medium">{$user.name}</div>

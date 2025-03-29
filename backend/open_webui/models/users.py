@@ -107,8 +107,10 @@ class UsersTable:
         with get_db() as db:
             # Force "user" role for all new users unless they're specifically set as "admin"
             # This prevents users from being stuck in "pending" status
+            print(f"DEBUG [insert_new_user] Initial role: {role}")
             if role != "admin":
                 role = "user"
+                print(f"DEBUG [insert_new_user] Forcing role to: {role}")
                 
             user = UserModel(
                 **{
@@ -123,6 +125,7 @@ class UsersTable:
                     "oauth_sub": oauth_sub,
                 }
             )
+            print(f"DEBUG [insert_new_user] Final UserModel role: {user.role}")
             result = User(**user.model_dump())
             db.add(result)
             db.commit()
