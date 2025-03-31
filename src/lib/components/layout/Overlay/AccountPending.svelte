@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { onMount, tick, getContext } from 'svelte';
 
-	// Properly type the i18n context to avoid TypeScript errors
-	type I18n = {
-		t: (key: string) => string;
-	};
-	
-	const i18n = getContext<I18n>('i18n');
+	const i18n = getContext('i18n');
 </script>
 
 <div class="fixed w-full h-full flex z-999">
@@ -16,15 +11,13 @@
 		<div class="m-auto pb-10 flex flex-col justify-center">
 			<div class="max-w-md">
 				<div class="text-center dark:text-white text-2xl font-medium z-50">
-					{i18n.t('Account Activation Pending')}<br />
-					{i18n.t('Contact Admin for WebUI Access')}
+					Account Activation Pending<br />
+					Contact Admin for WebUI Access
 				</div>
 
 				<div class=" mt-4 text-center text-sm dark:text-gray-200 w-full">
-					{i18n.t('Your account status is currently pending activation.')}<br />
-					{i18n.t(
-						'To access the WebUI, please reach out to the administrator. Admins can manage user statuses from the Admin Panel.'
-					)}
+					Your account status is currently pending activation.<br />
+					To access the WebUI, please reach out to the administrator. Admins can manage user statuses from the Admin Panel.
 				</div>
 
 				<div class=" mt-6 mx-auto relative group w-fit">
@@ -34,7 +27,7 @@
 							location.href = '/';
 						}}
 					>
-						{i18n.t('Check Again')}
+						Check Again
 					</button>
 
 					<button
@@ -42,7 +35,7 @@
 						on:click={async () => {
 							// Direct the user to the logout URL parameter we created
 							window.location.href = '/auth?logout=true';
-						}}>{i18n.t('Sign Out')}</button>
+						}}>Sign Out</button>
 				</div>
 			</div>
 		</div>
