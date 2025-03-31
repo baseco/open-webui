@@ -901,11 +901,8 @@
 							}}
 						>
 							<div class="self-center mr-3">
-								<!-- Debug info -->
-								<pre class="hidden">Debug: {JSON.stringify($user, null, 2)}</pre>
-								
 								<img
-									src="/user.png"
+									src={$user.profile_image_url || '/user.png'}
 									class="max-w-[30px] object-cover rounded-full"
 									alt="User profile"
 									draggable="false"
