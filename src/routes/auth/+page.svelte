@@ -18,8 +18,10 @@
 	import AnimatedLogo from '$lib/components/auth/AnimatedLogo.svelte';
 	import FeatureSlider from '$lib/components/auth/FeatureSlider.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import type { i18n as i18nType } from 'i18next';
+	import type { Writable } from 'svelte/store';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	let loaded = false;
 	let authError: string | null = null;
@@ -58,7 +60,7 @@
 	const setSessionUser = async (sessionUser) => {
 		if (sessionUser) {
 			console.log(sessionUser);
-			toast.success(i18n.t('You\'re now logged in.'));
+			toast.success($i18n.t('You\'re now logged in.'));
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
 			}
@@ -140,7 +142,7 @@
 			await user.set(undefined);
 			
 			// Show success message
-			toast.success(i18n.t('You have been logged out'));
+			toast.success($i18n.t('You have been logged out'));
 			
 			// Clean up the URL to remove the logout parameter
 			// This prevents reload loops if user refreshes the page
@@ -217,7 +219,7 @@
 						<div class="text-left mb-6">
 							<h1 class="text-3xl font-bold">{$WEBUI_NAME}</h1>
 							<p class="mt-4 text-xs text-gray-600" style="font-weight: 300;">
-								{i18n.t('Connect with all the top AI assistants in one place.')}
+								{$i18n.t('Connect with all the top AI assistants in one place.')}
 							</p>
 						</div>
 
@@ -225,7 +227,7 @@
 							{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
 								<div class="flex items-center justify-center gap-3 text-xl text-center font-semibold">
 									<div>
-										{i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+										{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
 									</div>
 									<div>
 										<Spinner />
