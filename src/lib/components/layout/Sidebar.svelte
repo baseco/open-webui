@@ -418,6 +418,7 @@
 		dropZone?.removeEventListener('drop', onDrop);
 		dropZone?.removeEventListener('dragleave', onDragLeave);
 	});
+
 </script>
 
 <ArchivedChatsModal
@@ -902,13 +903,18 @@
 						>
 							<div class="self-center mr-3">
 								<img
-									src={$user.profile_image_url || '/user.png'}
+									src={$user && $user.profile_image_url ? $user.profile_image_url : '/user.png'}
 									class="max-w-[30px] object-cover rounded-full"
 									alt="User profile"
-									draggable="false"
+									on:error={(e) => {
+										console.log('Profile image failed to load:', $user?.profile_image_url);
+										if (e.target instanceof HTMLImageElement) {
+											e.target.src = '/user.png';
+										}
+									}}
 								/>
 							</div>
-							<div class=" self-center font-medium">{$user.name}</div>
+							<div class=" self-center font-medium">{$user && $user.name ? $user.name : 'User'}</div>
 						</button>
 					</UserMenu>
 				{/if}

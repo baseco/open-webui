@@ -60,7 +60,7 @@
 	const setSessionUser = async (sessionUser) => {
 		if (sessionUser) {
 			console.log(sessionUser);
-			toast.success($i18n.t('You\'re now logged in.'));
+			toast.success($i18n.t(`You're now logged in.`));
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
 			}
@@ -100,7 +100,7 @@
 				return;
 			}
 			localStorage.token = token;
-			await setSessionUser(sessionUser);
+			return await setSessionUser(sessionUser);
 		} else if (!$page.url.hash) {
 			return;
 		}
