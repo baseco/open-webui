@@ -418,6 +418,7 @@
 		dropZone?.removeEventListener('drop', onDrop);
 		dropZone?.removeEventListener('dragleave', onDragLeave);
 	});
+
 </script>
 
 <ArchivedChatsModal
@@ -520,10 +521,10 @@
 				<div class="flex items-center">
 					<div class="self-center mx-1.5">
 						<img
-							crossorigin="anonymous"
-							src="{WEBUI_BASE_URL}/static/favicon.png"
-							class=" size-5 -translate-x-1.5 rounded-full"
-							alt="logo"
+							src={`${WEBUI_BASE_URL}/static/favicon.png`}
+							class="max-w-[30px] object-cover rounded-full"
+							alt="Product logo"
+							draggable="false"
 						/>
 					</div>
 					<div class=" self-center font-medium text-sm text-gray-850 dark:text-white font-primary">
@@ -562,6 +563,7 @@
 				</a>
 			</div>
 		{/if} -->
+
 
 		{#if $user?.role === 'admin'}
 			<div class="px-1.5 flex justify-center text-gray-800 dark:text-gray-200">
@@ -899,14 +901,20 @@
 								showDropdown = !showDropdown;
 							}}
 						>
-							<div class=" self-center mr-3">
+							<div class="self-center mr-3">
 								<img
-									src={$user.profile_image_url}
-									class=" max-w-[30px] object-cover rounded-full"
+									src={$user && $user.profile_image_url ? $user.profile_image_url : '/user.png'}
+									class="max-w-[30px] object-cover rounded-full"
 									alt="User profile"
+									on:error={(e) => {
+										console.log('Profile image failed to load:', $user?.profile_image_url);
+										if (e.target instanceof HTMLImageElement) {
+											e.target.src = '/user.png';
+										}
+									}}
 								/>
 							</div>
-							<div class=" self-center font-medium">{$user.name}</div>
+							<div class=" self-center font-medium">{$user && $user.name ? $user.name : 'User'}</div>
 						</button>
 					</UserMenu>
 				{/if}

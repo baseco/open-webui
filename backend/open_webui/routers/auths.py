@@ -545,7 +545,7 @@ def create_or_update_user(db, user, user_info):
             id=user_uuid,
             name=user_info['name'],
             email=user_info['email'],
-            role="pending",
+            role="user",
             profile_image_url=user_info['picture'] if user_info['picture'] else "/user.png",
             last_active_at=int(time.time()),
             created_at=int(time.time()),

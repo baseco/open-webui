@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { onMount, tick, getContext } from 'svelte';
 
-	const i18n = getContext('i18n');
+	// Properly type the i18n context to avoid TypeScript errors
+	type I18n = {
+		t: (key: string) => string;
+	};
+	
+	const i18n = getContext<I18n>('i18n');
 </script>
 
 <div class="fixed w-full h-full flex z-999">
@@ -35,8 +40,8 @@
 					<button
 						class="text-xs text-center w-full mt-2 text-gray-400 underline"
 						on:click={async () => {
-							// Direct the user to the logout URL parameter we created
-							window.location.href = '/auth?logout=true';
+							localStorage.removeItem('token');
+							location.href = '/auth';
 						}}>{i18n.t('Sign Out')}</button
 					>
 				</div>
