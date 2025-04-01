@@ -43,16 +43,21 @@
 
 	let showConfigModal = false;
 	let showManageModal = false;
+	let showDisableAllConfirm = false;
+	let disablingInProgress = false;
+	let disabledCount = 0;
+	let totalModelsToDisable = 0;
+	let disablingProgress = 0;
 
 	$: if (models) {
 		filteredModels = models
 			.filter((m) => searchValue === '' || m.name.toLowerCase().includes(searchValue.toLowerCase()))
 			.sort((a, b) => {
-				// // Check if either model is inactive and push them to the bottom
-				// if ((a.is_active ?? true) !== (b.is_active ?? true)) {
-				// 	return (b.is_active ?? true) - (a.is_active ?? true);
-				// }
-				// If both models' active states are the same, sort alphabetically
+				// First sort by active status (active models first)
+				if ((a.is_active ?? true) !== (b.is_active ?? true)) {
+					return (b.is_active ?? true) - (a.is_active ?? true);
+				}
+				// Then sort alphabetically within each group
 				return a.name.localeCompare(b.name);
 			});
 	}
@@ -146,6 +151,101 @@
 		);
 	};
 
+	const disableAllModels = async () => {
+		try {
+			// Show confirmation dialog
+			showDisableAllConfirm = true;
+		} catch (error) {
+			console.error('Error disabling models:', error);
+			toast.error($i18n.t('Error disabling models'));
+		}
+	};
+
+	const confirmDisableAllModels = async () => {
+		try {
+			// Start with a loading toast
+			const toastId = toast.loading($i18n.t('Disabling all models...'));
+			
+			// Set in progress flag and reset counters
+			disablingInProgress = true;
+			disabledCount = 0;
+			
+			// Count active models that need to be disabled
+			const activeModels = models.filter(model => model.is_active);
+			totalModelsToDisable = activeModels.length;
+			disablingProgress = 0;
+			
+			// Use a more robust approach to disable all models
+			for (let i = 0; i < activeModels.length; i++) {
+				const model = activeModels[i];
+				try {
+					// Instead of using the toggleModelHandler, directly create or update the model with is_active=false
+					// This ensures each model is properly disabled in the database
+					
+					// Check if the model already exists in workspace models
+					const existingModel = workspaceModels.find(m => m.id === model.id);
+					
+					if (existingModel) {
+						// Update existing model
+						await updateModelById(localStorage.token, model.id, {
+							...existingModel,
+							is_active: false
+						});
+					} else {
+						// Create new model entry with is_active=false
+						await createNewModel(localStorage.token, {
+							id: model.id,
+							name: model.name,
+							base_model_id: null,
+							meta: model.meta || {},
+							params: model.params || {},
+							access_control: model.access_control || {},
+							is_active: false
+						});
+					}
+					
+					// Update local model state to reflect changes
+					model.is_active = false;
+					
+					disabledCount++;
+					disablingProgress = Math.round((disabledCount / totalModelsToDisable) * 100);
+					
+					// Update the toast message with progress
+					toast.loading(`${$i18n.t('Disabling models')}: ${disabledCount}/${totalModelsToDisable} (${disablingProgress}%)`, { id: toastId });
+					
+					// Small delay to avoid overwhelming the server
+					await new Promise(resolve => setTimeout(resolve, 100));
+				} catch (err) {
+					console.error(`Error disabling model ${model.id}:`, err);
+				}
+			}
+			
+			// Final success toast
+			toast.success(`${$i18n.t('All models disabled successfully')}: ${disabledCount}/${totalModelsToDisable}`, { id: toastId });
+			
+			// Only now close the confirmation dialog and reset flags
+			disablingInProgress = false;
+			showDisableAllConfirm = false;
+			
+			// Refresh everything to ensure we display the current state
+			_models.set(
+				await getModels(
+					localStorage.token,
+					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
+				)
+			);
+			
+			// Wait a bit before refreshing the admin view
+			await new Promise(resolve => setTimeout(resolve, 500));
+			await init();
+		} catch (error) {
+			console.error('Error disabling models:', error);
+			toast.error($i18n.t('Error disabling models'));
+			disablingInProgress = false;
+			showDisableAllConfirm = false;
+		}
+	};
+
 	onMount(async () => {
 		init();
 	});
@@ -153,6 +253,17 @@
 
 <ConfigureModelsModal bind:show={showConfigModal} initHandler={init} />
 <ManageModelsModal bind:show={showManageModal} />
+
+<ConfirmDialog
+	title={$i18n.t('Disable All Models')}
+	body={disablingInProgress ? 
+		`${$i18n.t('Disabling models')}: ${disabledCount}/${totalModelsToDisable} (${disablingProgress}%)`
+		: $i18n.t('Are you sure you want to disable all models? This will affect all models in the system.')}
+	confirmText={disablingInProgress ? $i18n.t('Please wait...') : $i18n.t('Disable All')}
+	bind:show={showDisableAllConfirm}
+	on:confirm={confirmDisableAllModels}
+	disableConfirm={disablingInProgress}
+/>
 
 {#if models !== null}
 	{#if selectedModelId === null}
@@ -167,6 +278,25 @@
 				</div>
 
 				<div class="flex items-center gap-1.5">
+					<Tooltip content={$i18n.t('Disable All Models')}>
+						<button
+							class="p-1 rounded-full flex gap-1 items-center text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
+							type="button"
+							on:click={disableAllModels}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="1.5"
+								stroke="currentColor"
+								class="w-4 h-4"
+							>
+								<path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
+							</svg>
+						</button>
+					</Tooltip>
+					
 					<Tooltip content={$i18n.t('Manage Models')}>
 						<button
 							class=" p-1 rounded-full flex gap-1 items-center"
