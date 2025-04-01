@@ -7,12 +7,13 @@
 	const i18n = getContext('i18n');
 
 	import { WEBUI_NAME, config, mobile, models as _models, settings, user } from '$lib/stores';
+	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import {
 		createNewModel,
-		deleteAllModels,
 		getBaseModels,
 		toggleModelById,
-		updateModelById
+		updateModelById,
+		getModelById
 	} from '$lib/apis/models';
 
 	import { getModels } from '$lib/apis';
@@ -153,6 +154,7 @@
 
 	const disableAllModels = async () => {
 		try {
+			console.log("disableAllModels called - showing confirmation dialog");
 			// Show confirmation dialog
 			showDisableAllConfirm = true;
 		} catch (error) {
@@ -163,6 +165,7 @@
 
 	const confirmDisableAllModels = async () => {
 		try {
+			console.log("confirmDisableAllModels called - starting process");
 			// Start with a loading toast
 			const toastId = toast.loading($i18n.t('Disabling all models...'));
 			
@@ -170,43 +173,59 @@
 			disablingInProgress = true;
 			disabledCount = 0;
 			
+			// First, refresh the model data to ensure we have the latest state
+			console.log("Refreshing model data before disabling");
+			workspaceModels = await getBaseModels(localStorage.token);
+			baseModels = await getModels(localStorage.token, null, true);
+			
+			// Reinitialize models with fresh data
+			models = baseModels.map((m) => {
+				const workspaceModel = workspaceModels.find((wm) => wm.id === m.id);
+				if (workspaceModel) {
+					return {
+						...m,
+						...workspaceModel
+					};
+				} else {
+					return {
+						...m,
+						id: m.id,
+						name: m.name,
+						is_active: true
+					};
+				}
+			});
+			
+			console.log("Fresh models data loaded:", models.length, "models");
+			
 			// Count active models that need to be disabled
-			const activeModels = models.filter(model => model.is_active);
+			const activeModels = models.filter(model => model.is_active !== false);
 			totalModelsToDisable = activeModels.length;
 			disablingProgress = 0;
 			
-			// Use a more robust approach to disable all models
+			console.log("Active models to disable:", totalModelsToDisable);
+			
+			if (totalModelsToDisable === 0) {
+				console.log("No active models found to disable");
+				toast.success($i18n.t('All models are already disabled'), { id: toastId });
+				disablingInProgress = false;
+				showDisableAllConfirm = false;
+				return;
+			}
+			
+			// Process each active model - using ONLY toggleModelById which we know works for individual toggles
 			for (let i = 0; i < activeModels.length; i++) {
 				const model = activeModels[i];
 				try {
-					// Instead of using the toggleModelHandler, directly create or update the model with is_active=false
-					// This ensures each model is properly disabled in the database
+					console.log(`Processing model ${i+1}/${activeModels.length}: ${model.id}, current active state: ${model.is_active}`);
 					
-					// Check if the model already exists in workspace models
-					const existingModel = workspaceModels.find(m => m.id === model.id);
+					// Use the toggleModelById function directly - this is what works when manually toggling
+					console.log(`Toggling model: ${model.id}`);
+					await toggleModelById(localStorage.token, model.id);
+					console.log(`Successfully toggled model: ${model.id}`);
 					
-					if (existingModel) {
-						// Update existing model
-						await updateModelById(localStorage.token, model.id, {
-							...existingModel,
-							is_active: false
-						});
-					} else {
-						// Create new model entry with is_active=false
-						await createNewModel(localStorage.token, {
-							id: model.id,
-							name: model.name,
-							base_model_id: null,
-							meta: model.meta || {},
-							params: model.params || {},
-							access_control: model.access_control || {},
-							is_active: false
-						});
-					}
-					
-					// Update local model state to reflect changes
+					// Update local model state
 					model.is_active = false;
-					
 					disabledCount++;
 					disablingProgress = Math.round((disabledCount / totalModelsToDisable) * 100);
 					
@@ -214,30 +233,42 @@
 					toast.loading(`${$i18n.t('Disabling models')}: ${disabledCount}/${totalModelsToDisable} (${disablingProgress}%)`, { id: toastId });
 					
 					// Small delay to avoid overwhelming the server
-					await new Promise(resolve => setTimeout(resolve, 100));
+					await new Promise(resolve => setTimeout(resolve, 200));
 				} catch (err) {
 					console.error(`Error disabling model ${model.id}:`, err);
 				}
 			}
 			
 			// Final success toast
-			toast.success(`${$i18n.t('All models disabled successfully')}: ${disabledCount}/${totalModelsToDisable}`, { id: toastId });
+			console.log("All models processed, refreshing data");
 			
-			// Only now close the confirmation dialog and reset flags
+			if (disabledCount === totalModelsToDisable) {
+				toast.success($i18n.t('All models disabled successfully'), { id: toastId });
+			} else {
+				toast.success(`${$i18n.t('Models disabled')}: ${disabledCount}/${totalModelsToDisable}`, { id: toastId });
+			}
+			
+			// Wait a bit longer before refreshing to ensure all backend operations complete
+			console.log("Waiting before refresh...");
+			await new Promise(resolve => setTimeout(resolve, 2000));
+			
+			// Complete refresh of all data to ensure consistent state
+			console.log("Refreshing global models store");
+			await _models.set(await getModels(localStorage.token));
+			
+			// Reload all model data
+			console.log("Reloading all model data");
+			workspaceModels = await getBaseModels(localStorage.token);
+			baseModels = await getModels(localStorage.token, null, true);
+			
+			// Reload the admin panel with fresh data
+			console.log("Reinitializing admin panel");
+			await init();
+			
+			// Close the confirmation dialog and reset flags
+			console.log("Reset UI flags");
 			disablingInProgress = false;
 			showDisableAllConfirm = false;
-			
-			// Refresh everything to ensure we display the current state
-			_models.set(
-				await getModels(
-					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
-			
-			// Wait a bit before refreshing the admin view
-			await new Promise(resolve => setTimeout(resolve, 500));
-			await init();
 		} catch (error) {
 			console.error('Error disabling models:', error);
 			toast.error($i18n.t('Error disabling models'));
