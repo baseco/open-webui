@@ -178,9 +178,13 @@
 			workspaceModels = await getBaseModels(localStorage.token);
 			baseModels = await getModels(localStorage.token, null, true);
 			
+			// Log details about our workspace models
+			console.log("Workspace models:", workspaceModels);
+			
 			// Reinitialize models with fresh data
 			models = baseModels.map((m) => {
 				const workspaceModel = workspaceModels.find((wm) => wm.id === m.id);
+
 				if (workspaceModel) {
 					return {
 						...m,
@@ -197,13 +201,14 @@
 			});
 			
 			console.log("Fresh models data loaded:", models.length, "models");
+			console.log("Detailed model state:", models.map(m => ({ id: m.id, name: m.name, is_active: m.is_active })));
 			
-			// Count active models that need to be disabled
+			// Get only active models (these are the ones we need to disable)
 			const activeModels = models.filter(model => model.is_active !== false);
 			totalModelsToDisable = activeModels.length;
-			disablingProgress = 0;
 			
 			console.log("Active models to disable:", totalModelsToDisable);
+			console.log("Active model details:", activeModels.map(m => ({ id: m.id, name: m.name })));
 			
 			if (totalModelsToDisable === 0) {
 				console.log("No active models found to disable");
@@ -213,60 +218,112 @@
 				return;
 			}
 			
-			// Process each active model - using ONLY toggleModelById which we know works for individual toggles
+			// Process each active model in sequence with careful error handling
 			for (let i = 0; i < activeModels.length; i++) {
 				const model = activeModels[i];
+				disablingProgress = Math.round((i / totalModelsToDisable) * 100);
+				
+				// Update the toast message with progress
+				toast.loading(`${$i18n.t('Disabling models')}: ${i}/${totalModelsToDisable} (${disablingProgress}%)`, { id: toastId });
+				
 				try {
-					console.log(`Processing model ${i+1}/${activeModels.length}: ${model.id}, current active state: ${model.is_active}`);
+					console.log(`[${i+1}/${activeModels.length}] Processing model: ${model.id} (${model.name})`);
 					
-					// Use the toggleModelById function directly - this is what works when manually toggling
-					console.log(`Toggling model: ${model.id}`);
-					await toggleModelById(localStorage.token, model.id);
-					console.log(`Successfully toggled model: ${model.id}`);
+					// Log current model state
+					console.log(`Current state for ${model.id}: is_active=${model.is_active}`);
 					
-					// Update local model state
-					model.is_active = false;
-					disabledCount++;
-					disablingProgress = Math.round((disabledCount / totalModelsToDisable) * 100);
+					// Get the complete model data first to make sure we have all required fields
+					console.log(`Fetching complete model data for ${model.id}...`);
+					const completeModelData = await getModelById(localStorage.token, model.id);
+					console.log(`Complete model data for ${model.id}:`, completeModelData);
 					
-					// Update the toast message with progress
-					toast.loading(`${$i18n.t('Disabling models')}: ${disabledCount}/${totalModelsToDisable} (${disablingProgress}%)`, { id: toastId });
+					if (!completeModelData) {
+						console.error(`Failed to fetch complete data for model ${model.id}`);
+						continue;
+					}
 					
-					// Small delay to avoid overwhelming the server
-					await new Promise(resolve => setTimeout(resolve, 200));
+					// Force a specific update using updateModelById to explicitly set is_active to false
+					// Include ALL required fields from the original model
+					console.log(`Explicitly setting model ${model.id} to inactive...`);
+					
+					// Create update payload with all required fields
+					const updatePayload = {
+						...completeModelData,
+						is_active: false
+					};
+					console.log(`Update payload for ${model.id}:`, updatePayload);
+					
+					// We'll use direct API call with detailed response logging
+					const updateResponse = await fetch(`${WEBUI_API_BASE_URL}/models/model/update?id=${encodeURIComponent(model.id)}`, {
+						method: 'POST',
+						headers: {
+							Accept: 'application/json',
+							'Content-Type': 'application/json',
+							authorization: `Bearer ${localStorage.token}`
+						},
+						body: JSON.stringify(updatePayload)
+					});
+					
+					// Log the complete response
+					const responseText = await updateResponse.text();
+					console.log(`Update API response for ${model.id}:`, updateResponse.status, responseText);
+					
+					if (updateResponse.ok) {
+						console.log(`Successfully updated model ${model.id} to inactive`);
+						disabledCount++;
+						
+						// Verify the model was actually updated by fetching it again
+						console.log(`Verifying model ${model.id} state...`);
+						const verifyResponse = await getModelById(localStorage.token, model.id);
+						console.log(`Verification response for ${model.id}:`, verifyResponse);
+						
+						if (verifyResponse && verifyResponse.is_active === false) {
+							console.log(`Verified: model ${model.id} is now inactive`);
+						} else {
+							console.log(`WARNING: model ${model.id} state verification failed!`);
+						}
+					} else {
+						console.error(`Failed to update model ${model.id}: Status ${updateResponse.status}`);
+					}
+					
+					// Wait between operations - give the server more time
+					console.log(`Waiting before processing next model...`);
+					await new Promise(resolve => setTimeout(resolve, 1000));
 				} catch (err) {
-					console.error(`Error disabling model ${model.id}:`, err);
+					console.error(`Error processing model ${model.id}:`, err);
 				}
 			}
 			
 			// Final success toast
-			console.log("All models processed, refreshing data");
-			
 			if (disabledCount === totalModelsToDisable) {
 				toast.success($i18n.t('All models disabled successfully'), { id: toastId });
 			} else {
 				toast.success(`${$i18n.t('Models disabled')}: ${disabledCount}/${totalModelsToDisable}`, { id: toastId });
 			}
 			
-			// Wait a bit longer before refreshing to ensure all backend operations complete
-			console.log("Waiting before refresh...");
-			await new Promise(resolve => setTimeout(resolve, 2000));
+			console.log(`Disabled ${disabledCount} out of ${totalModelsToDisable} models`);
 			
-			// Complete refresh of all data to ensure consistent state
+			// Wait a longer time before refreshing - critical for backend to process everything
+			console.log("Waiting 5 seconds before refreshing data...");
+			await new Promise(resolve => setTimeout(resolve, 5000));
+			
+			// Force a complete refresh of the global models store first
 			console.log("Refreshing global models store");
-			await _models.set(await getModels(localStorage.token));
+			const refreshedModels = await getModels(localStorage.token);
+			console.log("Refreshed models state:", refreshedModels);
+			await _models.set(refreshedModels);
 			
-			// Reload all model data
-			console.log("Reloading all model data");
+			// Force complete refresh of all model data
+			console.log("Force reloading all model data");
 			workspaceModels = await getBaseModels(localStorage.token);
 			baseModels = await getModels(localStorage.token, null, true);
+			console.log("Refreshed workspace models:", workspaceModels);
 			
-			// Reload the admin panel with fresh data
+			// Run the initialization function again
 			console.log("Reinitializing admin panel");
 			await init();
 			
 			// Close the confirmation dialog and reset flags
-			console.log("Reset UI flags");
 			disablingInProgress = false;
 			showDisableAllConfirm = false;
 		} catch (error) {
