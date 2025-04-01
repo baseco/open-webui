@@ -12,7 +12,7 @@
 
 	import { getKnowledgeBases } from '$lib/apis/knowledge';
 	import { getFunctions } from '$lib/apis/functions';
-	import { getModels, getVersionUpdates } from '$lib/apis';
+	import { getModels, getVersionUpdates, getBaseModels } from '$lib/apis';
 	import { getAllTags } from '$lib/apis/chats';
 	import { getPrompts } from '$lib/apis/prompts';
 	import { getTools } from '$lib/apis/tools';
@@ -94,12 +94,62 @@
 				settings.set(localStorageSettings);
 			}
 
-			models.set(
-				await getModels(
+			console.log('[App] Initializing model store with proper workspace overrides');
+			
+			try {
+				// Get both raw models and workspace-specific model settings
+				const baseModels = await getModels(
 					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
+					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null),
+					true // Important: Use base=true to get unfiltered models
+				);
+				
+				const workspaceModels = await getBaseModels(localStorage.token);
+				
+				console.log('[App] Fetched base models:', baseModels.length);
+				console.log('[App] Fetched workspace models:', workspaceModels.length);
+				
+				// Apply workspace settings to base models (same logic as in admin Models.svelte)
+				const mergedModels = baseModels.map(m => {
+					const workspaceModel = workspaceModels.find(wm => wm.id === m.id);
+					
+					if (workspaceModel) {
+						// Workspace settings override base model properties
+						return {
+							...m,
+							...workspaceModel
+						};
+					} else {
+						// Default values for models without workspace settings
+						return {
+							...m,
+							id: m.id,
+							name: m.name,
+							is_active: true // Default to active if no workspace setting
+						};
+					}
+				});
+				
+				console.log('[App] Models after merging workspace settings:', 
+					mergedModels.length,
+					'Active:', mergedModels.filter(m => m.is_active !== false).length,
+					'Inactive:', mergedModels.filter(m => m.is_active === false).length
+				);
+				
+				// Set the merged models in the store
+				models.set(mergedModels);
+			} catch (error) {
+				console.error('[App] Error initializing models with workspace settings:', error);
+				
+				// Fallback to original method if there's an error
+				models.set(
+					await getModels(
+						localStorage.token,
+						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
+					)
+				);
+			}
+			
 			banners.set(await getBanners(localStorage.token));
 			tools.set(await getTools(localStorage.token));
 

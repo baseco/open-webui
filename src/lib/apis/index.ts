@@ -1,5 +1,8 @@
 import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 import { getOpenAIModelsDirect } from './openai';
+import { getBaseModels as getBaseModelsFromApi } from './models';
+
+export const getBaseModels = getBaseModelsFromApi;
 
 export const getModels = async (
 	token: string = '',
