@@ -73,12 +73,12 @@
 				...item,
 				modelName: item.model?.name,
 				tags: item.model?.info?.meta?.tags?.map((tag) => tag.name).join(' '),
-				desc: item.model?.info?.meta?.description
+				desc: item.model?.info?.meta?.description || item.model?.description || item.model?.meta?.description
 			};
 			return _item;
 		}),
 		{
-			keys: ['value', 'tags', 'modelName'],
+			keys: ['value', 'tags', 'modelName', 'desc'],
 			threshold: 0.4
 		}
 	);
@@ -402,9 +402,18 @@
 											</Tooltip>
 										</div>
 									</div>
-									{#if item.model?.info?.meta?.description}
+									{#if item.model?.info?.meta?.description || item.model?.description || item.model?.meta?.description}
 										<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 pl-7 line-clamp-1">
-											{item.model.info.meta.description}
+											{#if item.model?.meta?.description}
+												<!-- Admin edited description -->
+												{item.model.meta.description}
+											{:else if item.model?.info?.meta?.description}
+												<!-- Model info description -->
+												{item.model.info.meta.description}
+											{:else}
+												<!-- Model direct description (Ollama) -->
+												{item.model.description}
+											{/if}
 										</div>
 									{/if}
 									{#if item.model.owned_by === 'ollama' && (item.model.ollama?.details?.parameter_size ?? '') !== ''}

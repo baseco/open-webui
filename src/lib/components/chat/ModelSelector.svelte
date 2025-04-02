@@ -37,7 +37,7 @@
 	$: if ($models) {
 		console.log('[ModelSelector] Available models count:', $models.length);
 		console.log('[ModelSelector] Filtered models count:', availableModels.length);
-		
+
 		// Log full model data grouped by source
 		console.log('[ModelSelector] All models grouped by source:', $models.reduce((acc, m) => {
 			const source = m?.owned_by || 'unknown';
@@ -93,11 +93,13 @@
 					<Selector
 						id={`${selectedModelIdx}`}
 						placeholder={$i18n.t('Select a model')}
-						items={availableModels.map((model) => ({
-							value: model.id,
-							label: model.name,
-							model: model
-						}))}
+						items={availableModels.map((model) => {
+							return {
+								value: model.id,
+								label: model.name,
+								model: model
+							};
+						})}
 						showTemporaryChatControl={$user.role === 'user'
 							? ($user?.permissions?.chat?.temporary ?? true)
 							: true}
