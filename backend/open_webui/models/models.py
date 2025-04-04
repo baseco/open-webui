@@ -139,7 +139,7 @@ class ModelForm(BaseModel):
     meta: ModelMeta
     params: ModelParams
     access_control: Optional[dict] = None
-    is_active: bool = True
+    is_active: bool = False
 
 
 class ModelsTable:
