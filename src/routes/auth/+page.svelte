@@ -30,24 +30,24 @@
 	// Feature slides data with more interesting Channel-related content
 	const featureSlides = [
 		{ 
-			title: 'One Place for All AI Assistants',
-			description: 'Connect with the best AI models and assistants through a single, unified interface',
-			image: `${WEBUI_BASE_URL}/static/splash.png` 
+			title: 'Query 3 of the world\'s top coding models simultaneously',
+			description: '',
+			image: `/auth/slides/slide-1-coding-notext.png` 
 		},
 		{ 
-			title: 'Powerful Conversations',
-			description: 'Engage in natural conversations with multiple AI models',
-			image: `${WEBUI_BASE_URL}/static/splash.png` 
+			title: 'Compare ChatGPT\'s creative writing with the top contenders',
+			description: '',
+			image: `/auth/slides/slide-2-cw-notext.png` 
 		},
 		{ 
-			title: 'Customizable Experience',
-			description: 'Configure models and settings to match your specific needs',
-			image: `${WEBUI_BASE_URL}/static/splash.png` 
+			title: 'Cross-check math solutions with the best models in one go',
+			description: '',
+			image: `/auth/slides/slide-3-math-notext.png` 
 		},
 		{ 
-			title: 'Privacy First',
-			description: 'Your conversations stay private and secure',
-			image: `${WEBUI_BASE_URL}/static/splash.png` 
+			title: 'Stay ahead with instant access to the latest models for tough prompts',
+			description: '',
+			image: `/auth/slides/slide-4-hardprompts-notext.png` 
 		}
 	];
 
@@ -269,7 +269,7 @@
 			<!-- Right pane - Feature showcase -->
 			<div class="w-full md:w-1/2 bg-[#E4E6E9] h-[100dvh] flex items-center justify-center p-6">
 				<div class="w-full max-w-[52rem] overflow-hidden rounded-lg bg-white/30 backdrop-blur-xl backdrop-filter shadow-lg border border-white/20 h-[85vh] relative">
-					<div class="p-8 h-full flex flex-col items-center justify-center">
+					<div class="p-4 h-full flex flex-col items-center justify-center">
 						<div class="flex-grow w-full flex items-center justify-center">
 							<!-- Feature slider component -->
 							<FeatureSlider slides={featureSlides} />
