@@ -1,8 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { tweened } from 'svelte/motion';
   import { fade } from 'svelte/transition';
-  import { cubicInOut } from 'svelte/easing';
 
   // Define types in a more Svelte-friendly way
   type FeatureSlide = {
@@ -18,59 +16,12 @@
 
   const dispatch = createEventDispatcher();
   let interval: ReturnType<typeof setInterval>;
-  let kenBurnsInterval: ReturnType<typeof setInterval>;
   let transitioning = false;
-  
-  // Ken Burns effect parameters
-  const kenBurnsDuration = autoPlayInterval - 1000; // Slightly shorter than slide duration
-  let zoomLevel = tweened(1, {
-    duration: kenBurnsDuration,
-    easing: cubicInOut
-  });
-  
-  let panX = tweened(0, {
-    duration: kenBurnsDuration,
-    easing: cubicInOut
-  });
-  
-  let panY = tweened(0, {
-    duration: kenBurnsDuration,
-    easing: cubicInOut
-  });
-
-  // Start Ken Burns effect for current slide
-  function startKenBurnsEffect() {
-    // Clear any existing animation
-    if (kenBurnsInterval) clearInterval(kenBurnsInterval);
-    
-    // Randomize the effect for each slide
-    const startZoom = 1;
-    const endZoom = 1 + (Math.random() * 0.15); // Zoom between 1x and 1.15x
-    
-    // Random pan within reasonable bounds
-    const startPanX = 0;
-    const startPanY = 0;
-    const endPanX = (Math.random() - 0.5) * 5; // -2.5% to 2.5% pan
-    const endPanY = (Math.random() - 0.5) * 5; // -2.5% to 2.5% pan
-    
-    // Reset values
-    zoomLevel.set(startZoom, { duration: 0 });
-    panX.set(startPanX, { duration: 0 });
-    panY.set(startPanY, { duration: 0 });
-    
-    // Start animation immediately
-    zoomLevel.set(endZoom);
-    panX.set(endPanX);
-    panY.set(endPanY);
-  }
 
   async function goToSlide(index: number) {
     if (transitioning || index === currentSlide) return;
     
     transitioning = true;
-    
-    // Stop current Ken Burns effect
-    if (kenBurnsInterval) clearInterval(kenBurnsInterval);
     
     // Update slide index
     currentSlide = index;
@@ -80,8 +31,6 @@
 
     // Wait a brief moment for the fade transition to complete
     setTimeout(() => {
-      // Start Ken Burns effect for new slide
-      startKenBurnsEffect();
       transitioning = false;
     }, 600);
   }
@@ -97,9 +46,6 @@
   }
 
   onMount(() => {
-    // Start Ken Burns effect for first slide
-    startKenBurnsEffect();
-    
     // Auto-advance slides
     interval = setInterval(() => {
       nextSlide();
@@ -108,24 +54,22 @@
 
   onDestroy(() => {
     if (interval) clearInterval(interval);
-    if (kenBurnsInterval) clearInterval(kenBurnsInterval);
   });
 </script>
 
 <div class="w-full h-full flex flex-col items-center justify-between">
-  <!-- Ken Burns Slide Container -->
+  <!-- Slide Container -->
   <div class="flex-grow w-full relative overflow-hidden" style="min-height: 400px;">
     {#key currentSlide}
       <div 
         class="w-full h-full absolute inset-0 flex flex-col items-center justify-center p-6"
         transition:fade={{ duration: 600 }}
       >
-        <!-- Content wrapper with Ken Burns effect -->
-        <div class="w-full max-w-lg flex flex-col items-center justify-center">
+        <div class="w-full max-w-full flex flex-col items-center justify-center">
           {#if slides[currentSlide]?.title || slides[currentSlide]?.description}
-            <div class="text-center mb-8">
+            <div class="mb-8 w-full">
               {#if slides[currentSlide]?.title}
-                <h2 class="text-2xl font-bold mb-4">{slides[currentSlide].title}</h2>
+                <h2 class="text-[20px] font-[300] text-[#4E4E4E] mb-6 self-start px-[5%]" style="font-family: Inter; font-weight: 300;">{slides[currentSlide].title}</h2>
               {/if}
               {#if slides[currentSlide]?.description}
                 <p class="text-gray-600">{slides[currentSlide].description}</p>
@@ -133,22 +77,14 @@
             </div>
           {/if}
           
-          <!-- Image with Ken Burns effect -->
-          <div 
-            class="rounded-lg overflow-hidden shadow-lg" 
-            style="max-width: 100%;"
-          >
-            <div class="overflow-hidden rounded-lg">
-              <img
-                src={slides[currentSlide]?.image || "/placeholder.svg"}
-                alt={slides[currentSlide]?.title || "Feature image"}
-                class="w-full h-auto object-cover transform origin-center transition-all duration-100 ease-linear"
-                style="
-                  transform: scale({$zoomLevel}) translate({$panX}%, {$panY}%);
-                  max-height: 300px;
-                "
-              />
-            </div>
+          <!-- Image container -->
+          <div class="rounded-lg overflow-hidden w-full">
+            <img
+              src={slides[currentSlide]?.image || "/placeholder.svg"}
+              alt={slides[currentSlide]?.title || "Feature image"}
+              class="w-full h-auto object-contain"
+              style="max-height: 70vh;"
+            />
           </div>
         </div>
       </div>
