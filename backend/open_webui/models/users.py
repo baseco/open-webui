@@ -32,6 +32,7 @@ class User(Base):
     api_key = Column(String, nullable=True, unique=True)
     settings = Column(JSONField, nullable=True)
     info = Column(JSONField, nullable=True)
+    message_count = Column(BigInteger, default=0)
 
     oauth_sub = Column(Text, unique=True)
 
@@ -56,6 +57,7 @@ class UserModel(BaseModel):
     api_key: Optional[str] = None
     settings: Optional[UserSettings] = None
     info: Optional[dict] = None
+    message_count: int = 0
 
     oauth_sub: Optional[str] = None
 
@@ -73,6 +75,7 @@ class UserResponse(BaseModel):
     email: str
     role: str
     profile_image_url: str
+    message_count: int = 0
 
 
 class UserNameResponse(BaseModel):
@@ -95,6 +98,34 @@ class UserUpdateForm(BaseModel):
 
 
 class UsersTable:
+    def increment_message_count(self, id: str) -> Optional[int]:
+        try:
+            with get_db() as db:
+                user = db.query(User).filter_by(id=id).first()
+                if user:
+                    current_count = user.message_count
+                    print(f"DEBUG: Current message count before increment: {current_count}")
+                    if user.message_count is None:
+                        user.message_count = 1
+                    else:
+                        user.message_count += 1
+                    db.commit()
+                    print(f"DEBUG: New message count after increment: {user.message_count}")
+                    return user.message_count
+                else:
+                    print(f"DEBUG: User with id {id} not found")
+                return None
+        except Exception as e:
+            print(f"DEBUG: Error incrementing message count: {str(e)}")
+            return None
+    
+    def get_message_count(self, id: str) -> Optional[int]:
+        try:
+            with get_db() as db:
+                user = db.query(User).filter_by(id=id).first()
+                return user.message_count if user else None
+        except Exception:
+            return None
     def insert_new_user(
         self,
         id: str,
@@ -120,6 +151,7 @@ class UsersTable:
                     "last_active_at": int(time.time()),
                     "created_at": int(time.time()),
                     "updated_at": int(time.time()),
+                    "message_count": 0,
                     "oauth_sub": oauth_sub,
                 }
             )

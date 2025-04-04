@@ -11,12 +11,22 @@
 	import { trackUserLoggedOut } from '$lib/services/analytics';
 	import { logout as auth0Logout } from '$lib/services/auth0';
 	import ArchiveBox from '$lib/components/icons/ArchiveBox.svelte';
+	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 	const i18n = getContext('i18n');
 
 	export let show = false;
 	export let role = '';
 	export let className = 'max-w-[240px]';
+
+	// Get message count from the user info object
+	$: messageCount = $user?.info?.message_count || $user?.message_count || 0;
+
+	// Log user info when component is mounted or when user changes
+	$: if ($user) {
+		console.log('UserMenu - User info updated:', $user);
+		console.log('UserMenu - Message count from user info:', messageCount);
+	}
 
 	const dispatch = createEventDispatcher();
 </script>
@@ -154,6 +164,13 @@
 					<div class=" self-center truncate">{$i18n.t('Admin Panel')}</div>
 				</a>
 			{/if}
+
+			<hr class=" border-gray-100 dark:border-gray-850 my-1 p-0" />
+
+			<div class="flex rounded-md py-2 px-3 w-full text-gray-600 dark:text-gray-400">
+				<div class="flex-1 truncate">Messages sent:</div>
+				<div class="text-right font-semibold">{messageCount}</div>
+			</div>
 
 			<hr class=" border-gray-100 dark:border-gray-850 my-1 p-0" />
 

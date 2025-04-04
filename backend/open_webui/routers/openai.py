@@ -19,6 +19,7 @@ from starlette.background import BackgroundTask
 from open_webui.models.models import Models
 from open_webui.config import (
     CACHE_DIR,
+    DEFAULT_MESSAGE_LIMIT,
 )
 from open_webui.env import (
     AIOHTTP_CLIENT_TIMEOUT,
@@ -26,7 +27,7 @@ from open_webui.env import (
     ENABLE_FORWARD_USER_INFO_HEADERS,
     BYPASS_MODEL_ACCESS_CONTROL,
 )
-from open_webui.models.users import UserModel
+from open_webui.models.users import UserModel, Users
 
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import ENV, SRC_LOG_LEVELS
@@ -581,6 +582,17 @@ async def generate_chat_completion(
     if BYPASS_MODEL_ACCESS_CONTROL:
         bypass_filter = True
 
+    # Check if user has exceeded message limit (only for non-admin users)
+    if user.role != "admin":  # Admins have no limit
+        message_count = Users.get_message_count(user.id)
+        message_limit = DEFAULT_MESSAGE_LIMIT.value
+        
+        if message_count is not None and message_count >= message_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="Message limit exceeded"
+            )
+    
     idx = 0
 
     payload = {**form_data}
@@ -674,9 +686,7 @@ async def generate_chat_completion(
     response = None
 
     try:
-        session = aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
-        )
+        session = aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT))
 
         r = await session.request(
             method="POST",
@@ -709,6 +719,8 @@ async def generate_chat_completion(
         # Check if response is SSE
         if "text/event-stream" in r.headers.get("Content-Type", ""):
             streaming = True
+            log.info(f"Streaming response detected - NOT incrementing message count for user {user.id} (will be handled by frontend)")
+            print(f"DEBUG: Streaming response - skipping backend increment for user {user.id}")
             return StreamingResponse(
                 r.content,
                 status_code=r.status,
@@ -720,6 +732,14 @@ async def generate_chat_completion(
         else:
             try:
                 response = await r.json()
+                
+                # Increment user message count after successful message for all users
+                # But only for non-streaming responses (streaming is handled by frontend)
+                log.info(f"Non-streaming response - incrementing message count for user {user.id}")
+                print(f"DEBUG: Non-streaming response - incrementing count for user {user.id}")
+                result = Users.increment_message_count(user.id)
+                log.info(f"New message count: {result}")
+                print(f"DEBUG: Increment result: {result}")
             except Exception as e:
                 log.error(e)
                 response = await r.text()

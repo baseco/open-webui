@@ -32,21 +32,23 @@
 	import { page } from '$app/stores';
 	import { Toaster, toast } from 'svelte-sonner';
 
-	import { getBackendConfig } from '$lib/apis';
+	import { getBackendConfig } from '$lib/apis/index';
 	import { getSessionUser } from '$lib/apis/auths';
-
-	import '../tailwind.css';
-	import '../app.css';
-
-	import 'tippy.js/dist/tippy.css';
-
-	import { WEBUI_BASE_URL, WEBUI_HOSTNAME } from '$lib/constants';
-	import i18n, { initI18n, getLanguages, changeLanguage } from '$lib/i18n';
+	import { getUserInfo } from '$lib/apis/users';
+	import { getLanguages, initI18n, changeLanguage } from '$lib/i18n';
 	import { bestMatchingLanguage } from '$lib/utils';
 	import { getAllTags, getChatList } from '$lib/apis/chats';
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import AppSidebar from '$lib/components/app/AppSidebar.svelte';
 	import { chatCompletion } from '$lib/apis/openai';
+
+	import '../tailwind.css';
+	import '../app.css';
+	
+	import 'tippy.js/dist/tippy.css';
+	
+	import { WEBUI_BASE_URL, WEBUI_HOSTNAME } from '$lib/constants';
+	import i18n from '$lib/i18n';
 
 	setContext('i18n', i18n);
 
@@ -512,6 +514,29 @@
 						$socket.emit('user-join', { auth: { token: sessionUser.token } });
 
 						await user.set(sessionUser);
+						
+						// Get detailed user info including message count
+						try {
+							const userInfo = await getUserInfo(localStorage.token);
+							if (userInfo) {
+								// Update user store with message count data
+								user.update(currentUser => {
+									if (currentUser) {
+										return {
+											...currentUser,
+											info: userInfo,
+											message_count: userInfo.message_count,
+											message_limit: userInfo.message_limit
+										};
+									}
+									return currentUser;
+								});
+								console.log('Updated user info with message count:', userInfo.message_count);
+							}
+						} catch (error) {
+							console.error('Error getting detailed user info:', error);
+						}
+						
 						await config.set(await getBackendConfig());
 					} else {
 						// Redirect Invalid Session User to /auth Page

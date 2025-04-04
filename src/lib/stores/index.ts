@@ -230,4 +230,9 @@ type SessionUser = {
 	name: string;
 	role: string;
 	profile_image_url: string;
+	info?: {
+		message_count?: number;
+		message_limit?: number;
+		[key: string]: any;
+	};
 };

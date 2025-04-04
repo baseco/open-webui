@@ -2460,6 +2460,16 @@ AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT = PersistentConfig(
 
 
 ####################################
+# Message Limits
+####################################
+
+DEFAULT_MESSAGE_LIMIT = PersistentConfig(
+    "DEFAULT_MESSAGE_LIMIT",
+    "limits.message_count",
+    int(os.environ.get("DEFAULT_MESSAGE_LIMIT", "6")),
+)
+
+####################################
 # LDAP
 ####################################
 

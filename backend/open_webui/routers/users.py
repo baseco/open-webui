@@ -15,6 +15,7 @@ from open_webui.models.users import (
 from open_webui.socket.main import get_active_status_by_user_id
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
+from open_webui.config import DEFAULT_MESSAGE_LIMIT
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from open_webui.utils.auth import get_admin_user, get_password_hash, get_verified_user
@@ -172,7 +173,24 @@ async def update_user_settings_by_session_user(
 async def get_user_info_by_session_user(user=Depends(get_verified_user)):
     user = Users.get_user_by_id(user.id)
     if user:
-        return user.info
+        try:
+            # Get the actual message count from the database
+            message_count = Users.get_message_count(user.id)
+            print(f"DEBUG USER INFO: Fetched message count for {user.id}: {message_count}")
+            
+            message_limit = DEFAULT_MESSAGE_LIMIT.value if user.role != "admin" else -1
+            
+            user_info = user.info if user.info else {}
+            user_info = {
+                **user_info,
+                "message_count": message_count,
+                "message_limit": message_limit
+            }
+            print(f"DEBUG USER INFO: Returning user info with message count: {message_count}")
+            return user_info
+        except Exception as e:
+            log.exception(f"Error getting message count for user info: {e}")
+            return user.info
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -302,6 +320,67 @@ async def update_user_by_id(
         detail=ERROR_MESSAGES.USER_NOT_FOUND,
     )
 
+
+############################
+# Get user message count and limit
+############################
+
+class MessageCountResponse(BaseModel):
+    count: int
+    limit: int
+
+
+@router.get("/message-count", response_model=MessageCountResponse)
+async def get_user_message_count(user=Depends(get_verified_user)):
+    try:
+        # For testing purposes, return a fixed count
+        message_count = 5  # Fixed test value
+        message_limit = DEFAULT_MESSAGE_LIMIT.value if user.role != "admin" else -1
+        
+        return {
+            "count": message_count,
+            "limit": message_limit
+        }
+    except Exception as e:
+        log.exception(f"Error getting message count: {e}")
+        return {
+            "count": 0,
+            "limit": DEFAULT_MESSAGE_LIMIT.value if user.role != "admin" else -1
+        }
+
+############################
+# Update user message count
+############################
+
+@router.post("/message_count")
+def update_message_count(request: Request, user=Depends(get_verified_user)):
+    """
+    Increment the message count for the current user.
+    This endpoint is needed to handle message counting for streaming responses.
+    """
+    print(f"DEBUG MESSAGE COUNT: Update message count endpoint called for user {user.id}")
+    
+    # Get current count before incrementing
+    current_count = Users.get_message_count(user.id)
+    print(f"DEBUG MESSAGE COUNT: Current message count for user {user.id} is {current_count}")
+    
+    # Now increment the message count for all users, including admins
+    log.info(f"Incrementing message count for user {user.id} via dedicated endpoint")
+    new_count = Users.increment_message_count(user.id)
+    
+    # Admin users have no limit, but we still track their count
+    message_limit = -1 if user.role == "admin" else DEFAULT_MESSAGE_LIMIT.value
+    
+    print(f"DEBUG MESSAGE COUNT: New message count after increment: {new_count}")
+    log.info(f"New message count: {new_count}")
+    
+    result = {
+        "message_count": new_count, 
+        "message_limit": message_limit
+    }
+    print(f"DEBUG MESSAGE COUNT: Returning result: {result}")
+    
+    return result
 
 ############################
 # DeleteUserById

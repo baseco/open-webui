@@ -52,7 +52,6 @@
 
 	import { trackConversationStarted, trackMessageSent } from '$lib/services/analytics';
 
-	import { generateChatCompletion } from '$lib/apis/ollama';
 	import {
 		addTagById,
 		createNewChat,
@@ -64,11 +63,14 @@
 		getTagsById,
 		updateChatById
 	} from '$lib/apis/chats';
-	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
+	import {
+		generateOpenAIChatCompletion
+	} from '$lib/apis/openai';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { createOpenAITextStream } from '$lib/apis/streaming';
 	import { queryMemory } from '$lib/apis/memories';
-	import { getAndUpdateUserLocation, getUserSettings } from '$lib/apis/users';
+	import { getAndUpdateUserLocation, getUserSettings, getUserInfo, updateMessageCount } from '$lib/apis/users';
+	
 	import {
 		chatCompleted,
 		generateQueries,
@@ -130,6 +132,7 @@
 	};
 
 	let taskId = null;
+	let streamingResponseInProgress = false;
 
 	// Chat Input
 	let prompt = '';
@@ -889,6 +892,47 @@
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			}
 		}
+
+		// After processing the response, update the user info to refresh message count
+		try {
+			console.log('Refreshing user info to update message count');
+			const refreshedUserInfo = await getUserInfo(localStorage.token);
+			console.log('User info from API:', refreshedUserInfo);
+			
+			if (refreshedUserInfo && $user) {
+				user.update(currentUser => {
+					if (currentUser) {
+						return {
+							...currentUser,
+							info: {
+								...currentUser.info,
+								message_count: refreshedUserInfo.info?.message_count ?? 
+									refreshedUserInfo.message_count ?? 
+									currentUser.info?.message_count,
+								message_limit: refreshedUserInfo.info?.message_limit ?? 
+									refreshedUserInfo.message_limit ?? 
+									currentUser.info?.message_limit
+							}
+						};
+					}
+					return currentUser;
+				});
+			}
+		} catch (error) {
+			console.error('Error refreshing user info after message completion:', error);
+		}
+
+		await tick();
+
+		if (autoScroll) {
+			scrollToBottom();
+		}
+
+		if (messages.length === 0) {
+			await initChatHandler(history);
+		} else {
+			await saveChatHandler($chatId, history);
+		}
 	};
 
 	const chatActionHandler = async (chatId, actionId, modelId, responseMessageId, event = null) => {
@@ -1345,7 +1389,7 @@
 		{ modelId = null, modelIdx = null, newChat = false } = {}
 	) => {
 		let _chatId = JSON.parse(JSON.stringify($chatId));
-		_history = JSON.parse(JSON.stringify(_history));
+		_history = JSON.parse(JSON.stringify(history));
 
 		const responseMessageIds: Record<PropertyKey, string> = {};
 		// If modelId is provided, use it, else use selected model
@@ -1630,14 +1674,6 @@
 								tags_generation: $settings?.autoTags ?? true
 							}
 						}
-					: {}),
-
-				...(stream && (model.info?.meta?.capabilities?.usage ?? false)
-					? {
-							stream_options: {
-								include_usage: true
-							}
-						}
 					: {})
 			},
 			`${WEBUI_BASE_URL}/api`
@@ -1658,10 +1694,79 @@
 
 		if (res) {
 			taskId = res.task_id;
+			streamingResponseInProgress = stream;
 		}
 
 		await tick();
 		scrollToBottom();
+
+		// After the message stream is completed, update message count manually
+		// This is needed because the backend only increments the count for non-streaming responses
+		try {
+			console.log('Checking if we need to update message count after response');
+			console.log('Current user info:', JSON.stringify($user));
+			
+			// Only call updateMessageCount if this was a streaming response
+			// For non-streaming responses, the backend already increments the count
+			if (streamingResponseInProgress) {
+				console.log('This was a streaming response, updating message count');
+				
+				const result = await updateMessageCount(localStorage.token);
+				console.log('Message count update result:', JSON.stringify(result));
+				
+				if (result && $user) {
+					console.log('Updating user store with new message count');
+					user.update(currentUser => {
+						if (currentUser) {
+							console.log('Before update - current message count:', currentUser.info?.message_count);
+							
+							const updatedUser = {
+								...currentUser,
+								info: {
+									...currentUser.info,
+									message_count: result.message_count
+								}
+							};
+							console.log('After update - new message count:', updatedUser.info?.message_count);
+							return updatedUser;
+						}
+						return currentUser;
+					});
+				}
+			} else {
+				console.log('This was a non-streaming response, backend already incremented count');
+				
+				// Refresh user info to get the updated count from the backend
+				try {
+					console.log('Refreshing user info to get updated count from backend');
+					const userInfo = await getUserInfo(localStorage.token);
+					console.log('User info refresh result:', JSON.stringify(userInfo));
+					
+					if (userInfo && $user) {
+						user.update(currentUser => {
+							if (currentUser) {
+								console.log('Before refresh - current message count:', currentUser.info?.message_count);
+								
+								const updatedUser = {
+									...currentUser,
+									info: {
+										...currentUser.info,
+										...userInfo
+									}
+								};
+								console.log('After refresh - new message count:', updatedUser.info?.message_count);
+								return updatedUser;
+							}
+							return currentUser;
+						});
+					}
+				} catch (refreshError) {
+					console.error('Error refreshing user info:', refreshError);
+				}
+			}
+		} catch (error) {
+			console.error('Error updating message count after chat completion:', error);
+		}
 	};
 
 	const handleOpenAIError = async (error, responseMessage) => {

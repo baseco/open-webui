@@ -1010,6 +1010,20 @@ async def generate_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
+    from open_webui.config import DEFAULT_MESSAGE_LIMIT
+    from open_webui.models.users import Users
+    
+    # Check if user has exceeded message limit
+    if user.role != "admin":  # Admins have no limit
+        message_count = Users.get_message_count(user.id)
+        message_limit = DEFAULT_MESSAGE_LIMIT.value
+        
+        if message_count is not None and message_count >= message_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="Message limit exceeded"
+            )
+            
     if url_idx is None:
         await get_all_models(request, user=user)
         models = request.app.state.OLLAMA_MODELS
@@ -1037,12 +1051,20 @@ async def generate_completion(
     if prefix_id:
         form_data.model = form_data.model.replace(f"{prefix_id}.", "")
 
-    return await send_post_request(
+    response = await send_post_request(
         url=f"{url}/api/generate",
         payload=form_data.model_dump_json(exclude_none=True).encode(),
         key=get_api_key(url_idx, url, request.app.state.config.OLLAMA_API_CONFIGS),
         user=user,
     )
+    
+    # Increment user message count after successful message
+    if user.role != "admin":  # Admins have no limit
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
+        
+    return response
 
 
 class ChatMessage(BaseModel):
@@ -1098,6 +1120,20 @@ async def generate_chat_completion(
     user=Depends(get_verified_user),
     bypass_filter: Optional[bool] = False,
 ):
+    from open_webui.config import DEFAULT_MESSAGE_LIMIT
+    from open_webui.models.users import Users
+    
+    # Check if user has exceeded message limit
+    if user.role != "admin":  # Admins have no limit
+        message_count = Users.get_message_count(user.id)
+        message_limit = DEFAULT_MESSAGE_LIMIT.value
+        
+        if message_count is not None and message_count >= message_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="Message limit exceeded"
+            )
+            
     if BYPASS_MODEL_ACCESS_CONTROL:
         bypass_filter = True
 
@@ -1165,7 +1201,7 @@ async def generate_chat_completion(
     if prefix_id:
         payload["model"] = payload["model"].replace(f"{prefix_id}.", "")
 
-    return await send_post_request(
+    response = await send_post_request(
         url=f"{url}/api/chat",
         payload=json.dumps(payload),
         stream=form_data.stream,
@@ -1173,6 +1209,14 @@ async def generate_chat_completion(
         content_type="application/x-ndjson",
         user=user,
     )
+    
+    # Increment user message count after successful message
+    if user.role != "admin":  # Admins have no limit
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
+        
+    return response
 
 
 # TODO: we should update this part once Ollama supports other types
@@ -1210,6 +1254,20 @@ async def generate_openai_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
+    from open_webui.config import DEFAULT_MESSAGE_LIMIT
+    from open_webui.models.users import Users
+    
+    # Check if user has exceeded message limit
+    if user.role != "admin":  # Admins have no limit
+        message_count = Users.get_message_count(user.id)
+        message_limit = DEFAULT_MESSAGE_LIMIT.value
+        
+        if message_count is not None and message_count >= message_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="Message limit exceeded"
+            )
+            
     try:
         form_data = OpenAICompletionForm(**form_data)
     except Exception as e:
@@ -1269,13 +1327,21 @@ async def generate_openai_completion(
     if prefix_id:
         payload["model"] = payload["model"].replace(f"{prefix_id}.", "")
 
-    return await send_post_request(
+    response = await send_post_request(
         url=f"{url}/v1/completions",
         payload=json.dumps(payload),
         stream=payload.get("stream", False),
         key=get_api_key(url_idx, url, request.app.state.config.OLLAMA_API_CONFIGS),
         user=user,
     )
+    
+    # Increment user message count after successful message
+    if user.role != "admin":  # Admins have no limit
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
+        
+    return response
 
 
 @router.post("/v1/chat/completions")
@@ -1286,6 +1352,20 @@ async def generate_openai_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
 ):
+    from open_webui.config import DEFAULT_MESSAGE_LIMIT
+    from open_webui.models.users import Users
+    
+    # Check if user has exceeded message limit
+    if user.role != "admin":  # Admins have no limit
+        message_count = Users.get_message_count(user.id)
+        message_limit = DEFAULT_MESSAGE_LIMIT.value
+        
+        if message_count is not None and message_count >= message_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="Message limit exceeded"
+            )
+            
     metadata = form_data.pop("metadata", None)
 
     try:
@@ -1348,13 +1428,21 @@ async def generate_openai_chat_completion(
     if prefix_id:
         payload["model"] = payload["model"].replace(f"{prefix_id}.", "")
 
-    return await send_post_request(
+    response = await send_post_request(
         url=f"{url}/v1/chat/completions",
         payload=json.dumps(payload),
         stream=payload.get("stream", False),
         key=get_api_key(url_idx, url, request.app.state.config.OLLAMA_API_CONFIGS),
         user=user,
     )
+    
+    # Increment user message count after successful message
+    if user.role != "admin":  # Admins have no limit
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
+        
+    return response
 
 
 @router.get("/v1/models")
