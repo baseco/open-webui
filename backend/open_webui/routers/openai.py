@@ -719,8 +719,8 @@ async def generate_chat_completion(
         # Check if response is SSE
         if "text/event-stream" in r.headers.get("Content-Type", ""):
             streaming = True
-            log.info(f"Streaming response detected - NOT incrementing message count for user {user.id} (will be handled by frontend)")
-            print(f"DEBUG: Streaming response - skipping backend increment for user {user.id}")
+            log.info(f"Streaming response detected - incrementing message count for user {user.id}")
+            Users.increment_message_count(user.id)
             return StreamingResponse(
                 r.content,
                 status_code=r.status,
@@ -732,14 +732,8 @@ async def generate_chat_completion(
         else:
             try:
                 response = await r.json()
-                
-                # Increment user message count after successful message for all users
-                # But only for non-streaming responses (streaming is handled by frontend)
-                log.info(f"Non-streaming response - incrementing message count for user {user.id}")
-                print(f"DEBUG: Non-streaming response - incrementing count for user {user.id}")
-                result = Users.increment_message_count(user.id)
-                log.info(f"New message count: {result}")
-                print(f"DEBUG: Increment result: {result}")
+                log.info(f"Incrementing message count for user {user.id} (non-streaming OpenAI)")
+                Users.increment_message_count(user.id)
             except Exception as e:
                 log.error(e)
                 response = await r.text()

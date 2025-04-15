@@ -19,14 +19,33 @@
 	export let role = '';
 	export let className = 'max-w-[240px]';
 
-	// Get message count from the user info object
+	// Get message count from both user info object and localStorage
 	$: messageCount = $user?.info?.message_count || $user?.message_count || 0;
-
-	// Log user info when component is mounted or when user changes
-	$: if ($user) {
-		console.log('UserMenu - User info updated:', $user);
-		console.log('UserMenu - Message count from user info:', messageCount);
-	}
+	
+	// Also track a local count for immediate UI updates
+	let localMessageCount = messageCount;
+	
+	// Update local count from localStorage every second
+	onMount(() => {
+		// Initialize localStorage if needed
+		if (!localStorage.getItem('messageCount')) {
+			localStorage.setItem('messageCount', String(messageCount));
+		} else {
+			// Initialize local count from localStorage
+			localMessageCount = parseInt(localStorage.getItem('messageCount') || '0', 10);
+		}
+		
+		// Set up interval to check localStorage
+		const intervalId = setInterval(() => {
+			const storedCount = parseInt(localStorage.getItem('messageCount') || '0', 10);
+			if (storedCount !== localMessageCount) {
+				localMessageCount = storedCount;
+			}
+		}, 1000);
+		
+		// Clean up interval on component destroy
+		return () => clearInterval(intervalId);
+	});
 
 	const dispatch = createEventDispatcher();
 </script>
@@ -169,7 +188,7 @@
 
 			<div class="flex rounded-md py-2 px-3 w-full text-gray-600 dark:text-gray-400">
 				<div class="flex-1 truncate">Messages sent:</div>
-				<div class="text-right font-semibold">{messageCount}</div>
+				<div class="text-right font-semibold">{localMessageCount}</div>
 			</div>
 
 			<hr class=" border-gray-100 dark:border-gray-850 my-1 p-0" />
