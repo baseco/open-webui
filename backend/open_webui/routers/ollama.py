@@ -1059,10 +1059,9 @@ async def generate_completion(
     )
     
     # Increment user message count after successful message
-    if user.role != "admin":  # Admins have no limit
-        log.info(f"Incrementing message count for user {user.id}")
-        result = Users.increment_message_count(user.id)
-        log.info(f"New message count: {result}")
+    log.info(f"Incrementing message count for user {user.id}")
+    result = Users.increment_message_count(user.id)
+    log.info(f"New message count: {result}")
         
     return response
 
@@ -1211,10 +1210,9 @@ async def generate_chat_completion(
     )
     
     # Increment user message count after successful message
-    if user.role != "admin":  # Admins have no limit
-        log.info(f"Incrementing message count for user {user.id}")
-        result = Users.increment_message_count(user.id)
-        log.info(f"New message count: {result}")
+    log.info(f"Incrementing message count for user {user.id}")
+    result = Users.increment_message_count(user.id)
+    log.info(f"New message count: {result}")
         
     return response
 
@@ -1336,10 +1334,9 @@ async def generate_openai_completion(
     )
     
     # Increment user message count after successful message
-    if user.role != "admin":  # Admins have no limit
-        log.info(f"Incrementing message count for user {user.id}")
-        result = Users.increment_message_count(user.id)
-        log.info(f"New message count: {result}")
+    log.info(f"Incrementing message count for user {user.id}")
+    result = Users.increment_message_count(user.id)
+    log.info(f"New message count: {result}")
         
     return response
 
@@ -1437,10 +1434,9 @@ async def generate_openai_chat_completion(
     )
     
     # Increment user message count after successful message
-    if user.role != "admin":  # Admins have no limit
-        log.info(f"Incrementing message count for user {user.id}")
-        result = Users.increment_message_count(user.id)
-        log.info(f"New message count: {result}")
+    log.info(f"Incrementing message count for user {user.id}")
+    result = Users.increment_message_count(user.id)
+    log.info(f"New message count: {result}")
         
     return response
 
