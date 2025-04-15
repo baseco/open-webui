@@ -104,19 +104,14 @@ class UsersTable:
                 user = db.query(User).filter_by(id=id).first()
                 if user:
                     current_count = user.message_count
-                    print(f"DEBUG: Current message count before increment: {current_count}")
                     if user.message_count is None:
                         user.message_count = 1
                     else:
                         user.message_count += 1
                     db.commit()
-                    print(f"DEBUG: New message count after increment: {user.message_count}")
                     return user.message_count
-                else:
-                    print(f"DEBUG: User with id {id} not found")
                 return None
         except Exception as e:
-            print(f"DEBUG: Error incrementing message count: {str(e)}")
             return None
     
     def get_message_count(self, id: str) -> Optional[int]:

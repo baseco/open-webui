@@ -524,14 +524,11 @@
 									if (currentUser) {
 										return {
 											...currentUser,
-											info: userInfo,
-											message_count: userInfo.message_count,
-											message_limit: userInfo.message_limit
+											info: userInfo
 										};
 									}
 									return currentUser;
 								});
-								console.log('Updated user info with message count:', userInfo.message_count);
 							}
 						} catch (error) {
 							console.error('Error getting detailed user info:', error);
