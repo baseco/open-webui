@@ -110,6 +110,37 @@ async def get_all_models(request, user: UserModel = None):
     ]
 
     custom_models = Models.get_all_models()
+    
+    # First, ensure all models from external sources exist in the database
+    # with is_active=False by default for new models
+    model_ids_in_database = set(custom_model.id for custom_model in custom_models)
+    admin_user_id = None
+    
+    # Get admin user for creating default model entries
+    for user in Models.get_admin_users():
+        admin_user_id = user.id
+        break
+        
+    if admin_user_id:
+        for model in models:
+            model_id = model["id"]
+            # Only process models that don't exist in our database yet
+            if model_id not in model_ids_in_database:
+                log.info(f"Creating new model entry with is_active=False for {model_id}")
+                # Create a database entry for this model with is_active=False
+                model_form = {
+                    "id": model_id,
+                    "name": model.get("name", model_id),
+                    "meta": {
+                        "description": model.get("description", ""),
+                        "profile_image_url": "/static/favicon.png",
+                    },
+                    "params": {},
+                    "is_active": False  # Explicitly set to False for new models
+                }
+                Models.insert_new_model(model_form, admin_user_id)
+    
+    # Now process custom models normally
     for custom_model in custom_models:
         if custom_model.base_model_id is None:
             for model in models:
