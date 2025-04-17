@@ -41,6 +41,7 @@
 	export let regenerateResponse: Function;
 	export let mergeResponses: Function;
 
+	export let chatActionHandler: Function;
 	export let showMessage: Function = () => {};
 	export let submitMessage: Function = () => {};
 	export let addMessages: Function = () => {};
@@ -288,6 +289,10 @@
 		}
 	};
 
+	const actionMessage = async (actionId, message, event = null) => {
+		await chatActionHandler(chatId, actionId, message.model, message.id, event);
+	};
+
 	const saveMessage = async (messageId, message) => {
 		history.messages[messageId] = message;
 		await updateChat();
@@ -409,6 +414,7 @@
 							{editMessage}
 							{deleteMessage}
 							{rateMessage}
+							{actionMessage}
 							{saveMessage}
 							{submitMessage}
 							{regenerateResponse}

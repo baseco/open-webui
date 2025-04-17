@@ -181,7 +181,7 @@ async def get_user_info_by_session_user(user=Depends(get_verified_user)):
                 user_info["message_count"] = message_count
             
             # Add message limit from config
-            message_limit = DEFAULT_MESSAGE_LIMIT.get_value()
+            message_limit = DEFAULT_MESSAGE_LIMIT.value
             if message_limit:
                 user_info["message_limit"] = message_limit
 
@@ -350,22 +350,30 @@ async def get_user_message_count(user=Depends(get_verified_user)):
 # Update user message count
 ############################
 
-@router.post("/message_count")
-def update_message_count(request: Request, user=Depends(get_verified_user)):
+@router.get("/increment_message_count", response_model=dict)
+async def increment_message_count(
+    user=Depends(get_verified_user),
+):
     """
     Increment the message count for the current user.
     This endpoint is needed to handle message counting for streaming responses.
     """
-    # Get current count before incrementing
-    current_count = Users.get_message_count(user.id)
+    from open_webui.config import DEFAULT_MESSAGE_LIMIT
     
-    # Now increment the message count for all users, including admins
-    log.info(f"Incrementing message count for user {user.id} via dedicated endpoint")
-    new_count = Users.increment_message_count(user.id)
+    # Get current message count from the database
+    current_count = Users.get_message_count(user.id)
     
     # Admin users have no limit, but we still track their count
     message_limit = -1 if user.role == "admin" else DEFAULT_MESSAGE_LIMIT.value
     
+    # Only increment if user hasn't exceeded limit
+    if user.role == "admin" or (current_count is not None and current_count < message_limit):
+        log.info(f"Incrementing message count for user {user.id} via dedicated endpoint")
+        new_count = Users.increment_message_count(user.id)
+    else:
+        # Don't increment if limit reached, but still return current count
+        new_count = current_count
+        
     result = {
         "message_count": new_count, 
         "message_limit": message_limit

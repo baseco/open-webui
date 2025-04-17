@@ -1,15 +1,17 @@
+import json
 import time
+import uuid
 from typing import Optional
 
+from fastapi import HTTPException
+from loguru import logger as log
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import BigInteger, Column, String, Text, CheckConstraint
+
 from open_webui.internal.db import Base, JSONField, get_db
-
-
 from open_webui.models.chats import Chats
 from open_webui.models.groups import Groups
 
-
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, Column, String, Text
 
 ####################
 # User DB Schema
@@ -19,17 +21,17 @@ from sqlalchemy import BigInteger, Column, String, Text
 class User(Base):
     __tablename__ = "user"
 
-    id = Column(String, primary_key=True)
-    name = Column(String)
-    email = Column(String)
-    role = Column(String)
-    profile_image_url = Column(Text)
-
-    last_active_at = Column(BigInteger)
-    updated_at = Column(BigInteger)
-    created_at = Column(BigInteger)
-
-    api_key = Column(String, nullable=True, unique=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(Text, nullable=False)
+    email = Column(Text, unique=True, nullable=False)
+    role = Column(
+        String(50), CheckConstraint("role IN ('admin', 'user')"), default="user"
+    )
+    profile_image_url = Column(Text, nullable=True)
+    last_active_at = Column(BigInteger, default=lambda: int(time.time()))
+    updated_at = Column(BigInteger, default=lambda: int(time.time()))
+    created_at = Column(BigInteger, default=lambda: int(time.time()))
+    api_key = Column(Text, nullable=True)
     settings = Column(JSONField, nullable=True)
     info = Column(JSONField, nullable=True)
     message_count = Column(BigInteger, default=0)
@@ -47,13 +49,11 @@ class UserModel(BaseModel):
     id: str
     name: str
     email: str
-    role: str = "pending"
-    profile_image_url: str
-
-    last_active_at: int  # timestamp in epoch
-    updated_at: int  # timestamp in epoch
-    created_at: int  # timestamp in epoch
-
+    role: str = "user"
+    profile_image_url: Optional[str] = None
+    last_active_at: int = int(time.time())
+    updated_at: int = int(time.time())
+    created_at: int = int(time.time())
     api_key: Optional[str] = None
     settings: Optional[UserSettings] = None
     info: Optional[dict] = None
@@ -103,7 +103,6 @@ class UsersTable:
             with get_db() as db:
                 user = db.query(User).filter_by(id=id).first()
                 if user:
-                    current_count = user.message_count
                     if user.message_count is None:
                         user.message_count = 1
                     else:

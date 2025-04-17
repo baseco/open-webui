@@ -28,6 +28,7 @@ from fastapi import (
     Request,
     UploadFile,
     APIRouter,
+    Query
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -50,6 +51,7 @@ from open_webui.utils.access_control import has_access
 
 from open_webui.config import (
     UPLOAD_DIR,
+    DEFAULT_MESSAGE_LIMIT
 )
 from open_webui.env import (
     ENV,
@@ -1009,7 +1011,11 @@ async def generate_completion(
     form_data: GenerateCompletionForm,
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
+    increment: Optional[bool] = Query(True, description="Whether to increment the message count")
 ):
+    """
+    Generate a completion.
+    """
     from open_webui.config import DEFAULT_MESSAGE_LIMIT
     from open_webui.models.users import Users
     
@@ -1059,9 +1065,10 @@ async def generate_completion(
     )
     
     # Increment user message count after successful message
-    log.info(f"Incrementing message count for user {user.id}")
-    result = Users.increment_message_count(user.id)
-    log.info(f"New message count: {result}")
+    if increment:
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
         
     return response
 
@@ -1118,6 +1125,7 @@ async def generate_chat_completion(
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
     bypass_filter: Optional[bool] = False,
+    increment: Optional[bool] = Query(True, description="Whether to increment the message count")
 ):
     from open_webui.config import DEFAULT_MESSAGE_LIMIT
     from open_webui.models.users import Users
@@ -1210,9 +1218,10 @@ async def generate_chat_completion(
     )
     
     # Increment user message count after successful message
-    log.info(f"Incrementing message count for user {user.id}")
-    result = Users.increment_message_count(user.id)
-    log.info(f"New message count: {result}")
+    if increment:
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
         
     return response
 
@@ -1251,7 +1260,11 @@ async def generate_openai_completion(
     form_data: dict,
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
+    increment: Optional[bool] = Query(True, description="Whether to increment the message count")
 ):
+    """
+    Generate a text completion for OpenAI compatible models.
+    """
     from open_webui.config import DEFAULT_MESSAGE_LIMIT
     from open_webui.models.users import Users
     
@@ -1334,9 +1347,10 @@ async def generate_openai_completion(
     )
     
     # Increment user message count after successful message
-    log.info(f"Incrementing message count for user {user.id}")
-    result = Users.increment_message_count(user.id)
-    log.info(f"New message count: {result}")
+    if increment:
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
         
     return response
 
@@ -1348,7 +1362,11 @@ async def generate_openai_chat_completion(
     form_data: dict,
     url_idx: Optional[int] = None,
     user=Depends(get_verified_user),
+    increment: Optional[bool] = Query(True, description="Whether to increment the message count")
 ):
+    """
+    Generate a chat completion for OpenAI compatible models.
+    """
     from open_webui.config import DEFAULT_MESSAGE_LIMIT
     from open_webui.models.users import Users
     
@@ -1434,9 +1452,10 @@ async def generate_openai_chat_completion(
     )
     
     # Increment user message count after successful message
-    log.info(f"Incrementing message count for user {user.id}")
-    result = Users.increment_message_count(user.id)
-    log.info(f"New message count: {result}")
+    if increment:
+        log.info(f"Incrementing message count for user {user.id}")
+        result = Users.increment_message_count(user.id)
+        log.info(f"New message count: {result}")
         
     return response
 
