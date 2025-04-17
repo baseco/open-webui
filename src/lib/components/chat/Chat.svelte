@@ -933,6 +933,32 @@
 		} else {
 			await saveChatHandler($chatId, history);
 		}
+
+		// Update user info to refresh message count
+		try {
+			const userInfo = await getUserInfo(localStorage.token);
+			if (userInfo && userInfo.info?.message_count) {
+				// Update localStorage for the UserMenu component to pick up
+				localStorage.setItem('messageCount', String(userInfo.info.message_count));
+				
+				// Also update the user store
+				user.update(currentUser => {
+					if (currentUser) {
+						return {
+							...currentUser,
+							info: {
+								...currentUser.info,
+								message_count: userInfo.info.message_count,
+								message_limit: userInfo.info?.message_limit ?? currentUser.info?.message_limit
+							}
+						};
+					}
+					return currentUser;
+				});
+			}
+		} catch (error) {
+			console.error('Error updating message count:', error);
+		}
 	};
 
 	const chatActionHandler = async (chatId, actionId, modelId, responseMessageId, event = null) => {
@@ -985,6 +1011,33 @@
 				currentChatPage.set(1);
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			}
+		}
+		
+		// After processing the action, refresh user info to update message count
+		try {
+			const refreshedUserInfo = await getUserInfo(localStorage.token);
+			
+			if (refreshedUserInfo && $user) {
+				user.update(currentUser => {
+					if (currentUser) {
+						return {
+							...currentUser,
+							info: {
+								...currentUser.info,
+								message_count: refreshedUserInfo.info?.message_count ?? 
+									refreshedUserInfo.message_count ?? 
+									currentUser.info?.message_count,
+								message_limit: refreshedUserInfo.info?.message_limit ?? 
+									refreshedUserInfo.message_limit ?? 
+									currentUser.info?.message_limit
+							}
+						};
+					}
+					return currentUser;
+				});
+			}
+		} catch (error) {
+			console.error('Error refreshing user info after chat action:', error);
 		}
 	};
 
@@ -1380,6 +1433,41 @@
 		saveSessionSelectedModels();
 
 		await sendPrompt(history, userPrompt, userMessageId, { newChat: true });
+		
+		// After sending, explicitly request updated user info for message count
+		try {
+			const userInfo = await getUserInfo(localStorage.token);
+			
+			if (userInfo && $user) {
+				user.update(currentUser => {
+					if (currentUser) {
+						// Update message count in user store
+						const updatedUser = {
+							...currentUser,
+							info: {
+								...currentUser.info,
+								message_count: userInfo.info?.message_count ?? 
+									userInfo.message_count ?? 
+									currentUser.info?.message_count,
+								message_limit: userInfo.info?.message_limit ?? 
+									userInfo.message_limit ?? 
+									currentUser.info?.message_limit
+							}
+						};
+						
+						// Also update in localStorage for immediate UI feedback
+						if (updatedUser.info?.message_count) {
+							localStorage.setItem('messageCount', updatedUser.info.message_count.toString());
+						}
+						
+						return updatedUser;
+					}
+					return currentUser;
+				});
+			}
+		} catch (error) {
+			console.error('Error getting updated user info after message send:', error);
+		}
 	};
 
 	const sendPrompt = async (
@@ -1854,6 +1942,41 @@
 
 		await tick();
 		await sendPrompt(history, userPrompt, userMessageId);
+		
+		// After sending, explicitly request updated user info for message count
+		try {
+			const userInfo = await getUserInfo(localStorage.token);
+			
+			if (userInfo && $user) {
+				user.update(currentUser => {
+					if (currentUser) {
+						// Update message count in user store
+						const updatedUser = {
+							...currentUser,
+							info: {
+								...currentUser.info,
+								message_count: userInfo.info?.message_count ?? 
+									userInfo.message_count ?? 
+									currentUser.info?.message_count,
+								message_limit: userInfo.info?.message_limit ?? 
+									userInfo.message_limit ?? 
+									currentUser.info?.message_limit
+							}
+						};
+						
+						// Also update in localStorage for immediate UI feedback
+						if (updatedUser.info?.message_count) {
+							localStorage.setItem('messageCount', updatedUser.info.message_count.toString());
+						}
+						
+						return updatedUser;
+					}
+					return currentUser;
+				});
+			}
+		} catch (error) {
+			console.error('Error getting updated user info after message send:', error);
+		}
 	};
 
 	const regenerateResponse = async (message) => {
