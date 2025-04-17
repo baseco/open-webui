@@ -95,7 +95,7 @@ class Model(Base):
     #      }
     #   }
 
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=False)
 
     updated_at = Column(BigInteger)
     created_at = Column(BigInteger)
