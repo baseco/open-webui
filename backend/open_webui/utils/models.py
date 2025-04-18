@@ -10,7 +10,7 @@ from open_webui.functions import get_function_models
 
 
 from open_webui.models.functions import Functions
-from open_webui.models.models import Models
+from open_webui.models.models import Models, ModelForm
 
 
 from open_webui.utils.plugin import load_function_module_by_id
@@ -110,11 +110,24 @@ async def get_all_models(request, user: UserModel = None):
     ]
 
     custom_models = Models.get_all_models()
-    
-    # First, ensure all models from external sources exist in the database
-    # with is_active=False by default for new models
     model_ids_in_database = set(custom_model.id for custom_model in custom_models)
-    
+    # Insert new external models into DB as inactive if not present
+    for model in models[:]:  # iterate over a copy since we may remove
+        if model["id"] not in model_ids_in_database:
+            try:
+                form_data = ModelForm(
+                    id=model["id"],
+                    name=model.get("name", model["id"]),
+                    meta={},
+                    params={},
+                    is_active=False
+                )
+                Models.insert_new_model(form_data, user_id="system")
+            except Exception as e:
+                log.warning(f"Could not insert model {model['id']} into DB: {e}")
+            # Remove from list so it won't show up
+            models.remove(model)
+
     # Now process custom models normally
     for custom_model in custom_models:
         if custom_model.base_model_id is None:
