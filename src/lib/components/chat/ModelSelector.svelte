@@ -13,13 +13,19 @@
 
 	export let showSetDefault = true;
 
+	// Define availableModels first
+	let availableModels = [];
+
 	// Filter to exclude arena models and respect active status
-	$: availableModels = $models.filter(m => 
-		// Exclude arena models
-		m?.owned_by !== 'arena' && 
-		// Only include active models
-		m.is_active !== false
-	);
+	$: {
+		// Use more flexible truthy checking for is_active
+		availableModels = $models.filter(m => 
+			// Exclude arena models
+			m?.owned_by !== 'arena' && 
+			// Include models with truthy is_active (1, true, etc)
+			!!m.is_active
+		);
+	}
 
 	const saveDefaultModel = async () => {
 		const hasEmptyModel = selectedModels.filter((it) => it === '');
@@ -33,55 +39,10 @@
 		toast.success($i18n.t('Default model updated'));
 	};
 
-	// Log available models whenever the model store changes
-	$: if ($models) {
-		console.log('[ModelSelector] Available models count:', $models.length);
-		console.log('[ModelSelector] Filtered models count:', availableModels.length);
-
-		// Log full model data grouped by source
-		console.log('[ModelSelector] All models grouped by source:', $models.reduce((acc, m) => {
-			const source = m?.owned_by || 'unknown';
-			if (!acc[source]) acc[source] = [];
-			acc[source].push({
-				id: m.id,
-				name: m.name,
-				owned_by: m?.owned_by,
-				is_active: m.is_active,
-				direct: m.direct, 
-				base_model_id: m.base_model_id,
-				// Include any other relevant fields
-				urlIdx: m.urlIdx
-			});
-			return acc;
-		}, {}));
-		
-		console.log('[ModelSelector] Arena models (should be excluded):', 
-			$models.filter(m => m?.owned_by === 'arena').map(m => ({
-				id: m.id,
-				name: m.name,
-				is_active: m.is_active
-			})));
-		
-		console.log('[ModelSelector] Models that should be HIDDEN (is_active=false):', 
-			$models.filter(m => m.is_active === false).map(m => ({
-				id: m.id,
-				name: m.name,
-				owned_by: m?.owned_by
-			})));
-		
-		console.log('[ModelSelector] Models that are SHOWN (is_active≠false and not arena):', 
-			availableModels.map(m => ({
-				id: m.id,
-				name: m.name,
-				owned_by: m?.owned_by
-			})));
-	}
-
 	$: if (selectedModels.length > 0 && availableModels.length > 0) {
 		selectedModels = selectedModels.map((model) =>
 			availableModels.map((m) => m.id).includes(model) ? model : ''
 		);
-		console.log('[ModelSelector] Current selected models:', selectedModels);
 	}
 </script>
 
