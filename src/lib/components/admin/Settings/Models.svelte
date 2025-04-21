@@ -6,7 +6,7 @@
 	import { onMount, getContext, tick } from 'svelte';
 	const i18n = getContext('i18n');
 
-	import { WEBUI_NAME, config, mobile, models as _models, settings, user } from '$lib/stores';
+	import { WEBUI_NAME, config, mobile, models as modelsStore, settings, user } from '$lib/stores';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import {
 		createNewModel,
@@ -50,7 +50,38 @@
 	let totalModelsToDisable = 0;
 	let disablingProgress = 0;
 
-	$: if (models) {
+	let searchValue = '';
+
+	const downloadModels = async (models) => {
+		let blob = new Blob([JSON.stringify(models)], {
+			type: 'application/json'
+		});
+		saveAs(blob, `models-export-${Date.now()}.json`);
+	};
+
+	const init = async () => {
+		workspaceModels = await getBaseModels(localStorage.token);
+		baseModels = await getModels(localStorage.token, null, true);
+
+		models = baseModels.map((m) => {
+			const workspaceModel = workspaceModels.find((wm) => wm.id === m.id);
+
+			if (workspaceModel) {
+				return {
+					...m,
+					...workspaceModel
+				};
+			} else {
+				return {
+					...m,
+					id: m.id,
+					name: m.name,
+
+					is_active: true
+				};
+			}
+		});
+
 		filteredModels = models
 			.filter((m) => searchValue === '' || m.name.toLowerCase().includes(searchValue.toLowerCase()))
 			.sort((a, b) => {
@@ -90,50 +121,6 @@
 				return acc;
 			}, {})
 		);
-	}
-
-	let searchValue = '';
-
-	const downloadModels = async (models) => {
-		let blob = new Blob([JSON.stringify(models)], {
-			type: 'application/json'
-		});
-		saveAs(blob, `models-export-${Date.now()}.json`);
-	};
-
-	const init = async () => {
-		console.log('[AdminModels] Initializing models data...');
-		workspaceModels = await getBaseModels(localStorage.token);
-		baseModels = await getModels(localStorage.token, null, true);
-
-		console.log('[AdminModels] Workspace models from getBaseModels:', workspaceModels);
-		console.log('[AdminModels] Base models from getModels:', baseModels);
-
-		models = baseModels.map((m) => {
-			const workspaceModel = workspaceModels.find((wm) => wm.id === m.id);
-
-			if (workspaceModel) {
-				return {
-					...m,
-					...workspaceModel
-				};
-			} else {
-				return {
-					...m,
-					id: m.id,
-					name: m.name,
-
-					is_active: true
-				};
-			}
-		});
-
-		console.log('[AdminModels] Merged models data:', models.map(m => ({
-			id: m.id,
-			name: m.name,
-			is_active: m.is_active,
-			source: workspaceModels.find(wm => wm.id === m.id) ? 'workspace' : 'default'
-		})));
 	};
 
 	const upsertModelHandler = async (model) => {
@@ -157,20 +144,16 @@
 			}
 		}
 
-		_models.set(
-			await getModels(
-				localStorage.token,
-				$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-			)
+		const modelsResult = await getModels(
+			localStorage.token,
+			$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
 		);
+		modelsStore.set(modelsResult);
 		await init();
 	};
 
 	const toggleModelHandler = async (model) => {
-		console.log('[AdminModels] Toggling model:', model.id, model.name, 'Current is_active:', model.is_active);
-		
 		if (!Object.keys(model).includes('base_model_id')) {
-			console.log('[AdminModels] Creating new model entry for:', model.id);
 			await createNewModel(localStorage.token, {
 				id: model.id,
 				name: model.name,
@@ -180,27 +163,26 @@
 				access_control: {},
 				is_active: model.is_active
 			}).catch((error) => {
-				console.error('[AdminModels] Error creating model:', error);
 				return null;
 			});
 		} else {
-			console.log('[AdminModels] Toggling existing model:', model.id);
-			await toggleModelById(localStorage.token, model.id);
+			await toggleModelById(localStorage.token, model.id).catch((error) => {
+				return null;
+			});
 		}
 
-		// await init();
-		const updatedModels = await getModels(
-			localStorage.token,
-			$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-		);
-		console.log('[AdminModels] Updated models after toggle:', updatedModels);
-		_models.set(updatedModels);
+		const updatedModels = await getModels(localStorage.token);
+		const processedModels = updatedModels.map(model => {
+			if (model.info) {
+				return { ...model, is_active: true };
+			} 
+			return { ...model, is_active: false };
+		});
+		modelsStore.set(processedModels);
 	};
 
 	const disableAllModels = async () => {
 		try {
-			console.log("[AdminModels] disableAllModels called - showing confirmation dialog");
-			// Show confirmation dialog
 			showDisableAllConfirm = true;
 		} catch (error) {
 			console.error('Error disabling models:', error);
@@ -210,23 +192,14 @@
 
 	const confirmDisableAllModels = async () => {
 		try {
-			console.log("[AdminModels] confirmDisableAllModels called - starting process");
-			// Start with a loading toast
 			const toastId = toast.loading($i18n.t('Disabling all models...'));
 			
-			// Set in progress flag and reset counters
 			disablingInProgress = true;
 			disabledCount = 0;
 			
-			// First, refresh the model data to ensure we have the latest state
-			console.log("[AdminModels] Refreshing model data before disabling");
 			workspaceModels = await getBaseModels(localStorage.token);
 			baseModels = await getModels(localStorage.token, null, true);
 			
-			// Log details about our workspace models
-			console.log("[AdminModels] Workspace models:", workspaceModels);
-			
-			// Reinitialize models with fresh data
 			models = baseModels.map((m) => {
 				const workspaceModel = workspaceModels.find((wm) => wm.id === m.id);
 
@@ -245,60 +218,34 @@
 				}
 			});
 			
-			console.log("[AdminModels] Fresh models data loaded:", models.length, "models");
-			console.log("[AdminModels] Detailed model state:", models.map(m => ({ id: m.id, name: m.name, is_active: m.is_active })));
-			
-			// Get only active models (these are the ones we need to disable)
 			const activeModels = models.filter(model => model.is_active !== false);
 			totalModelsToDisable = activeModels.length;
 			
-			console.log("[AdminModels] Active models to disable:", totalModelsToDisable);
-			console.log("[AdminModels] Active model details:", activeModels.map(m => ({ id: m.id, name: m.name })));
-			
 			if (totalModelsToDisable === 0) {
-				console.log("[AdminModels] No active models found to disable");
 				toast.success($i18n.t('All models are already disabled'), { id: toastId });
 				disablingInProgress = false;
 				showDisableAllConfirm = false;
 				return;
 			}
 			
-			// Process each active model in sequence with careful error handling
 			for (let i = 0; i < activeModels.length; i++) {
 				const model = activeModels[i];
 				disablingProgress = Math.round((i / totalModelsToDisable) * 100);
 				
-				// Update the toast message with progress
 				toast.loading(`${$i18n.t('Disabling models')}: ${i}/${totalModelsToDisable} (${disablingProgress}%)`, { id: toastId });
 				
 				try {
-					console.log(`[AdminModels] [${i+1}/${activeModels.length}] Processing model: ${model.id} (${model.name})`);
-					
-					// Log current model state
-					console.log(`[AdminModels] Current state for ${model.id}: is_active=${model.is_active}`);
-					
-					// Get the complete model data first to make sure we have all required fields
-					console.log(`[AdminModels] Fetching complete model data for ${model.id}...`);
 					const completeModelData = await getModelById(localStorage.token, model.id);
-					console.log(`[AdminModels] Complete model data for ${model.id}:`, completeModelData);
 					
 					if (!completeModelData) {
-						console.error(`[AdminModels] Failed to fetch complete data for model ${model.id}`);
 						continue;
 					}
 					
-					// Force a specific update using updateModelById to explicitly set is_active to false
-					// Include ALL required fields from the original model
-					console.log(`[AdminModels] Explicitly setting model ${model.id} to inactive...`);
-					
-					// Create update payload with all required fields
 					const updatePayload = {
 						...completeModelData,
 						is_active: false
 					};
-					console.log(`[AdminModels] Update payload for ${model.id}:`, updatePayload);
 					
-					// We'll use direct API call with detailed response logging
 					const updateResponse = await fetch(`${WEBUI_API_BASE_URL}/models/model/update?id=${encodeURIComponent(model.id)}`, {
 						method: 'POST',
 						headers: {
@@ -309,71 +256,38 @@
 						body: JSON.stringify(updatePayload)
 					});
 					
-					// Log the complete response
-					const responseText = await updateResponse.text();
-					console.log(`[AdminModels] Update API response for ${model.id}:`, updateResponse.status, responseText);
-					
 					if (updateResponse.ok) {
-						console.log(`[AdminModels] Successfully updated model ${model.id} to inactive`);
 						disabledCount++;
 						
-						// Verify the model was actually updated by fetching it again
-						console.log(`[AdminModels] Verifying model ${model.id} state...`);
 						const verifyResponse = await getModelById(localStorage.token, model.id);
-						console.log(`[AdminModels] Verification response for ${model.id}:`, verifyResponse);
 						
 						if (verifyResponse && verifyResponse.is_active === false) {
-							console.log(`[AdminModels] Verified: model ${model.id} is now inactive`);
 						} else {
-							console.log(`[AdminModels] WARNING: model ${model.id} state verification failed!`);
 						}
 					} else {
-						console.error(`[AdminModels] Failed to update model ${model.id}: Status ${updateResponse.status}`);
 					}
 					
-					// Wait between operations - give the server more time
-					console.log(`[AdminModels] Waiting before processing next model...`);
 					await new Promise(resolve => setTimeout(resolve, 1000));
 				} catch (err) {
-					console.error(`[AdminModels] Error processing model ${model.id}:`, err);
 				}
 			}
 			
-			// Final success toast
 			if (disabledCount === totalModelsToDisable) {
 				toast.success($i18n.t('All models disabled successfully'), { id: toastId });
 			} else {
 				toast.success(`${$i18n.t('Models disabled')}: ${disabledCount}/${totalModelsToDisable}`, { id: toastId });
 			}
 			
-			console.log(`[AdminModels] Disabled ${disabledCount} out of ${totalModelsToDisable} models`);
-			
-			// Wait a longer time before refreshing - critical for backend to process everything
-			console.log("[AdminModels] Waiting 5 seconds before refreshing data...");
 			await new Promise(resolve => setTimeout(resolve, 5000));
 			
-			// Force a complete refresh of the global models store first
-			console.log("[AdminModels] Refreshing global models store");
 			const refreshedModels = await getModels(localStorage.token);
-			console.log("[AdminModels] Refreshed models state:", refreshedModels);
+			modelsStore.set(refreshedModels);
 			
-			// Debug: Check if any models are still showing as active
-			console.log("[AdminModels] Models still active in refreshed data:", 
-				refreshedModels.filter(m => m.is_active !== false).map(m => m.name));
-			
-			await _models.set(refreshedModels);
-			
-			// Force complete refresh of all model data
-			console.log("[AdminModels] Force reloading all model data");
 			workspaceModels = await getBaseModels(localStorage.token);
 			baseModels = await getModels(localStorage.token, null, true);
-			console.log("[AdminModels] Refreshed workspace models:", workspaceModels);
 			
-			// Run the initialization function again
-			console.log("[AdminModels] Reinitializing admin panel");
 			await init();
 			
-			// Close the confirmation dialog and reset flags
 			disablingInProgress = false;
 			showDisableAllConfirm = false;
 		} catch (error) {
@@ -587,12 +501,9 @@
 						accept=".json"
 						hidden
 						on:change={() => {
-							console.log(importFiles);
-
 							let reader = new FileReader();
 							reader.onload = async (event) => {
 								let savedModels = JSON.parse(event.target.result);
-								console.log(savedModels);
 
 								for (const model of savedModels) {
 									if (Object.keys(model).includes('base_model_id')) {
@@ -608,13 +519,11 @@
 									}
 								}
 
-								await _models.set(
-									await getModels(
-										localStorage.token,
-										$config?.features?.enable_direct_connections &&
-											($settings?.directConnections ?? null)
-									)
+								const modelsResult = await getModels(
+									localStorage.token,
+									$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
 								);
+								modelsStore.set(modelsResult);
 								init();
 							};
 
@@ -641,7 +550,7 @@
 							>
 								<path
 									fill-rule="evenodd"
-									d="M4 2a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V6.621a1.5 1.5 0 0 0-.44-1.06L9.94 2.439A1.5 1.5 0 0 0 8.878 2H4Zm4 9.5a.75.75 0 0 1-.75-.75V8.06l-.72.72a.75.75 0 0 1-1.06-1.06l2-2a.75.75 0 0 1 1.06 0l2 2a.75.75 0 1 1-1.06 1.06l-.72-.72v2.69a.75.75 0 0 1-.75.75Z"
+									d="M4 2a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V6.621a1.5 1.5 0 0 0-.44-1.06L9.94 2.439A1.5 1.5 0 0 0 8.878 2H4Zm4 3.5a.75.75 0 0 1 .75.75v2.69l.72-.72a.75.75 0 1 1 1.06 1.06l-2 2a.75.75 0 0 1-1.06 0l-2-2a.75.75 0 0 1 1.06-1.06l.72.72V6.25A.75.75 0 0 1 8 5.5Z"
 									clip-rule="evenodd"
 								/>
 							</svg>
@@ -682,7 +591,6 @@
 			model={models.find((m) => m.id === selectedModelId)}
 			preset={false}
 			onSubmit={(model) => {
-				console.log(model);
 				upsertModelHandler(model);
 				selectedModelId = null;
 			}}

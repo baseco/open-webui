@@ -43,6 +43,8 @@
 		selectedIdx = 0;
 	}
 
+	$: filteredModels = $models.filter((model) => !!model.is_active);
+
 	export const selectUp = () => {
 		selectedIdx = Math.max(0, selectedIdx - 1);
 	};
